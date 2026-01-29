@@ -1,0 +1,69 @@
+
+// CAPITAL41 SESSION VWAP
+//
+// What it does:
+// - Calculates an intraday VWAP that resets each session.
+// - Optional standard deviation band around VWAP for context.
+// - Works on intraday timeframes with volume data.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Choose session times and timezone to match your market.
+//
+// Usage guide (30m/4h):
+// - VWAP acts as fair value; price above = bullish bias, below = bearish.
+// - Use sweeps or MA trend for entries around VWAP.
+// - For 24/7 markets, set Session to 0000-2359.
+
+
+
+//@version=6
+indicator("Capital41 Session VWAP", overlay = true, max_lines_count = 50)
+
+// Inputs
+useExchangeTz = input.bool(false, "Use exchange timezone")
+sessTz        = input.string("America/New_York", "Session timezone",
+                             options = ["America/New_York", "America/Chicago", "Etc/UTC", "Europe/London", "Asia/Tokyo"])
+sessTimes     = input.session("0930-1600", "Session times")
+
+showVwap      = input.bool(true, "Show VWAP")
+showBands     = input.bool(false, "Show 1σ bands")
+bandMult      = input.float(1.0, "Band multiplier", minval = 0.1, maxval = 3.0)
+showOnlySession = input.bool(true, "Plot only during session")
+
+colorVwap = color.new(color.blue, 0)
+colorBand = color.new(color.blue, 70)
+
+// Session detection
+inSession = useExchangeTz ? not na(time(timeframe.period, sessTimes)) : not na(time(timeframe.period, sessTimes, sessTz))
+newSession = inSession and not inSession[1]
+
+// Session VWAP (manual)
+var float cumPV = 0.0
+var float cumV  = 0.0
+var float cumP2V = 0.0
+
+if newSession
+    cumPV := 0.0
+    cumV := 0.0
+    cumP2V := 0.0
+
+if inSession
+    tp = hlc3
+    cumPV += tp * volume
+    cumV  += volume
+    cumP2V += tp * tp * volume
+
+vwap = cumV > 0 ? cumPV / cumV : na
+variance = cumV > 0 ? (cumP2V / cumV) - (vwap * vwap) : na
+stdev = variance > 0 ? math.sqrt(variance) : 0.0
+
+vwapPlot = showVwap and (not showOnlySession or inSession) ? vwap : na
+upper = showBands and (not showOnlySession or inSession) ? vwap + stdev * bandMult : na
+lower = showBands and (not showOnlySession or inSession) ? vwap - stdev * bandMult : na
+
+plot(vwapPlot, title = "Session VWAP", color = colorVwap, linewidth = 2)
+plot(upper, title = "VWAP Upper", color = colorBand, linewidth = 1)
+plot(lower, title = "VWAP Lower", color = colorBand, linewidth = 1)
