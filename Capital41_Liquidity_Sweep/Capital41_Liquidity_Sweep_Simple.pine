@@ -1,0 +1,113 @@
+
+// CAPITAL41 LIQUIDITY SWEEP SIMPLE
+
+// What it does:
+// - Detects liquidity sweeps where price breaks a recent swing level and closes
+//   back inside the range with above-average volume.
+// - Marks single sweeps and optional consecutive sweeps at similar levels.
+// - Non-repainting: signals only after bar close.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Adjust inputs if you want more or fewer signals.
+//
+// Usage guide (30m/4h):
+// - Long: bullish sweep near support or in a bullish HTF trend.
+// - Short: bearish sweep near resistance or in a bearish HTF trend.
+// - For more signals: lower Min volume ratio or Lookback bars.
+// - For fewer signals: raise Min volume ratio or Lookback bars.
+
+
+
+//@version=6
+indicator("Capital41 Liquidity Sweep Simple", overlay = true, max_labels_count = 50)
+
+// Inputs tuned for 30m-4H
+lenHighLow       = input.int(20, "Lookback bars", minval = 2)
+volLookback      = input.int(50, "Volume SMA length", minval = 5)
+minVolRatio      = input.float(1.2, "Min volume ratio", minval = 1.0, maxval = 3.0)
+trackConsecutive = input.bool(true, "Show high-prob sweeps")
+maxBarsBetween   = input.int(10, "Max bars between sweeps", minval = 1, maxval = 100)
+
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+
+// Reference levels
+priorHigh = ta.highest(high[1], lenHighLow)
+priorLow  = ta.lowest(low[1],  lenHighLow)
+
+// Volume filter
+volSma   = ta.sma(volume, volLookback)
+volRatio = volSma > 0 ? volume / volSma : 0
+highVol  = volRatio >= minVolRatio
+
+// Sweep logic (confirmed close back inside range)
+bullSweep = low < priorLow and close >= priorLow and highVol and barstate.isconfirmed
+bearSweep = high > priorHigh and close <= priorHigh and highVol and barstate.isconfirmed
+
+// Consecutive sweeps at similar level within a window
+var int   consecBull = 0
+var int   consecBear = 0
+var float lastBullLevel = na
+var float lastBearLevel = na
+var int   lastBullBar = na
+var int   lastBearBar = na
+
+
+tolerance = close * 0.005
+sameLevelBull  = not na(lastBullLevel) and math.abs(priorLow - lastBullLevel) <= tolerance
+sameLevelBear  = not na(lastBearLevel) and math.abs(priorHigh - lastBearLevel) <= tolerance
+withinBarsBull = not na(lastBullBar) and bar_index - lastBullBar <= maxBarsBetween
+withinBarsBear = not na(lastBearBar) and bar_index - lastBearBar <= maxBarsBetween
+
+if bullSweep
+    if sameLevelBull and withinBarsBull
+        consecBull += 1
+    else
+        consecBull := 1
+    lastBullLevel := priorLow
+    lastBullBar := bar_index
+
+if bearSweep
+    if sameLevelBear and withinBarsBear
+        consecBear += 1
+    else
+        consecBear := 1
+    lastBearLevel := priorHigh
+    lastBearBar := bar_index
+
+highProbBull = bullSweep and consecBull >= 2
+highProbBear = bearSweep and consecBear >= 2
+
+// Signals
+plotshape(bullSweep and not highProbBull, title = "Bullish Sweep",
+          style = shape.triangleup, location = location.belowbar,
+          color = colorBull, size = size.tiny, text = "L")
+
+plotshape(bearSweep and not highProbBear, title = "Bearish Sweep",
+          style = shape.triangledown, location = location.abovebar,
+          color = colorBear, size = size.tiny, text = "S")
+
+plotshape(highProbBull and trackConsecutive, title = "High-Prob Bullish Sweep",
+          style = shape.diamond, location = location.belowbar,
+          color = colorBull, size = size.tiny, text = "L")
+
+plotshape(highProbBear and trackConsecutive, title = "High-Prob Bearish Sweep",
+          style = shape.diamond, location = location.abovebar,
+          color = colorBear, size = size.tiny, text = "S")
+
+
+// Alerts
+alertcondition(bullSweep, title = "Bullish Sweep",
+               message = "Liquidity Sweep: bullish sweep on {{ticker}} ({{interval}})")
+
+alertcondition(bearSweep, title = "Bearish Sweep",
+               message = "Liquidity Sweep: bearish sweep on {{ticker}} ({{interval}})")
+
+alertcondition(highProbBull and trackConsecutive, title = "High-Prob Bullish Sweep",
+               message = "Liquidity Sweep: high-prob bullish sweep on {{ticker}} ({{interval}})")
+
+alertcondition(highProbBear and trackConsecutive, title = "High-Prob Bearish Sweep",
+               message = "Liquidity Sweep: high-prob bearish sweep on {{ticker}} ({{interval}})")
