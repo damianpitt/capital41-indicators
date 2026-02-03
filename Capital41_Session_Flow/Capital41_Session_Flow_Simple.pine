@@ -1,0 +1,138 @@
+
+// CAPITAL41 SESSION FLOW SIMPLE
+
+// What it does:
+// - Draws session boxes for Asia, London, and New York using a US timezone.
+// - Tracks each session high/low and optional open line.
+// - Optional breakout markers when price breaks the prior session range.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) If you trade futures, set chart session to "All Sessions" to see Asia/London.
+// 5) Confirm the session timezone (default America/New_York).
+//
+// Usage guide (30m/4h):
+// - Keep boxes on for context; turn on breakouts only if you trade them.
+// - For US stocks, focus on New York session and pre-market London context.
+// - For BTC, all sessions are active; boxes help identify liquidity windows.
+
+
+
+//@version=6
+indicator("Capital41 Session Flow Simple", overlay = true, max_boxes_count = 300, max_labels_count = 50, max_lines_count = 50)
+
+// Inputs
+useExchangeTz = input.bool(false, "Use exchange timezone")
+sessTz     = input.string("America/New_York", "Session timezone",
+                          options = ["America/New_York", "America/Chicago", "Etc/UTC", "Europe/London", "Asia/Tokyo"])
+sessAsia   = input.session("0000-0800", "Asia session")
+sessLondon = input.session("0800-1600", "London session")
+sessNY     = input.session("0930-1600", "New York session")
+
+showBoxes    = input.bool(true, "Show session boxes")
+showOpenLine = input.bool(false, "Show session open")
+showBreakout = input.bool(false, "Show breakouts")
+showLabels   = input.bool(false, "Show session range label")
+
+colorAsia   = color.new(color.teal,  88)
+colorLondon = color.new(color.orange,88)
+colorNY     = color.new(color.blue,  88)
+colorBull   = color.new(color.lime, 0)
+colorBear   = color.new(color.red, 0)
+
+// Session detection
+inAsia   = useExchangeTz ? not na(time(timeframe.period, sessAsia)) : not na(time(timeframe.period, sessAsia, sessTz))
+inLondon = useExchangeTz ? not na(time(timeframe.period, sessLondon)) : not na(time(timeframe.period, sessLondon, sessTz))
+inNY     = useExchangeTz ? not na(time(timeframe.period, sessNY)) : not na(time(timeframe.period, sessNY, sessTz))
+
+sessionId = inAsia ? 1 : inLondon ? 2 : inNY ? 3 : 0
+
+var int   prevSessionId = 0
+var float sessHigh      = na
+var float sessLow       = na
+var float sessOpen      = na
+var float sessClose     = na
+var float prevRange     = na
+var float prevSessHigh  = na
+var float prevSessLow   = na
+var box   sessBox       = na
+var line  openLine      = na
+
+
+isSessionChange = sessionId != prevSessionId
+if isSessionChange
+    // Close previous session
+    if prevSessionId != 0
+        if not na(sessBox)
+            box.set_right(sessBox, bar_index)
+        if not na(openLine)
+            line.set_x2(openLine, bar_index)
+
+        if showLabels and not na(prevRange) and prevRange > 0 and not na(sessClose)
+            rangeNow  = sessHigh - sessLow
+            changePct = (rangeNow - prevRange) / prevRange * 100.0
+            priceChangePct = sessOpen != 0 ? (sessClose - sessOpen) / sessOpen * 100.0 : 0
+            volStatus = changePct > 10 ? "Expanding" : changePct < -10 ? "Contracting" : "Neutral"
+            direction = priceChangePct >= 0 ? "+" : "-"
+            txt = volStatus + " " + direction + str.tostring(priceChangePct, "#.##") + "%"
+            lblY = sessHigh + (rangeNow * 0.12)
+            lblColor = priceChangePct >= 0 ? colorBull : colorBear
+            label.new(bar_index, lblY, txt, style = label.style_label_down,
+                      textcolor = color.white, color = lblColor, size = size.tiny)
+
+        prevRange := sessHigh - sessLow
+        prevSessHigh := sessHigh
+        prevSessLow := sessLow
+
+    // Start new session
+    if sessionId != 0
+        sessHigh := high
+        sessLow  := low
+        sessOpen := open
+        sessClose := close
+
+        if showBoxes
+            sessBox := box.new(left = bar_index, right = bar_index + 1,
+                               top = high, bottom = low, border_width = 0)
+            boxColor = sessionId == 1 ? colorAsia : sessionId == 2 ? colorLondon : colorNY
+            box.set_bgcolor(sessBox, boxColor)
+
+        if showOpenLine
+            openLine := line.new(bar_index, open, bar_index + 1, open,
+                                 color = color.new(color.yellow, 0), width = 1,
+                                 style = line.style_dashed)
+
+    prevSessionId := sessionId
+
+// Update current session
+if sessionId != 0
+    sessHigh := math.max(sessHigh, high)
+    sessLow  := math.min(sessLow,  low)
+    sessClose := close
+
+    if not na(sessBox)
+        box.set_top(sessBox, sessHigh)
+        box.set_bottom(sessBox, sessLow)
+    if not na(openLine)
+        line.set_x2(openLine, bar_index + 1)
+
+
+// Breakouts from previous session
+breakAbove = showBreakout and not na(prevSessHigh) and high > prevSessHigh and high[1] <= prevSessHigh
+breakBelow = showBreakout and not na(prevSessLow) and low < prevSessLow and low[1] >= prevSessLow
+
+plotshape(breakAbove, title = "Session High Breakout",
+          style = shape.triangleup, location = location.belowbar,
+          color = colorBull, size = size.tiny, text = "BO")
+
+plotshape(breakBelow, title = "Session Low Breakdown",
+          style = shape.triangledown, location = location.abovebar,
+          color = colorBear, size = size.tiny, text = "BD")
+
+alertcondition(breakAbove, title = "Session High Breakout",
+               message = "Session Flow: price broke above previous session high on {{ticker}} ({{interval}})")
+
+alertcondition(breakBelow, title = "Session Low Breakdown",
+               message = "Session Flow: price broke below previous session low on {{ticker}} ({{interval}})")
