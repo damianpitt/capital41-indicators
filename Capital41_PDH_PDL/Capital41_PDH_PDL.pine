@@ -1,0 +1,42 @@
+// CAPITAL41 PREVIOUS DAY/WEEK LEVELS
+
+// What it does:
+// - Plots Previous Day High/Low (PDH/PDL).
+// - Optional Previous Week High/Low (PWH/PWL).
+// - Great for scalp targets and fades.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+//
+// Usage guide (30m/4h):
+// - PDH/PDL act as natural liquidity targets.
+// - Combine with sweeps and confluence signals for higher confidence.
+
+
+
+//@version=6
+indicator("Capital41 PDH/PDL Levels", overlay = true, max_lines_count = 50)
+
+showPD  = input.bool(true, "Show previous day levels")
+showPW  = input.bool(false, "Show previous week levels")
+
+colorPD = color.new(color.blue, 0)
+colorPW = color.new(color.purple, 0)
+
+
+// Previous Day levels
+pdh = request.security(syminfo.tickerid, "D", high[1])
+pdl = request.security(syminfo.tickerid, "D", low[1])
+
+
+// Previous Week levels
+pwh = request.security(syminfo.tickerid, "W", high[1])
+pwl = request.security(syminfo.tickerid, "W", low[1])
+
+plot(showPD ? pdh : na, title = "PDH", color = colorPD, linewidth = 1, style = plot.style_line)
+plot(showPD ? pdl : na, title = "PDL", color = colorPD, linewidth = 1, style = plot.style_line)
+
+plot(showPW ? pwh : na, title = "PWH", color = colorPW, linewidth = 1, style = plot.style_line)
+plot(showPW ? pwl : na, title = "PWL", color = colorPW, linewidth = 1, style = plot.style_line)
