@@ -1,0 +1,153 @@
+// CAPITAL41 FUSION SCALP (RSI + W%R + EMA + ATR/VOL)
+//
+// What it does:
+// - High-confluence fusion signal for 30m scalping.
+// - Combines four conditions: RSI, Williams %R, EMA trend, and ATR/Volume expansion.
+// - Signals only when ALL conditions align.
+// - Companion oscillator script available for a separate pane.
+//
+// Condition boxes (bottom-left):
+// - EMA: EMA trend filter (EMA+ above, EMA- below).
+// - RSI: RSI condition (RSI+ long, RSI- short).
+// - WR: Williams %R condition (WR+ long, WR- short).
+// - VOL: ATR + Volume expansion filter (VOL+ true).
+// - SIG: Final confluence signal (SIG L or SIG S).
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m timeframe on BTC or US stocks.
+// 4) If signals are too few, loosen thresholds via inputs.
+//
+// Usage guide (30m):
+// - Longs only when price is above EMA, RSI/W%R are oversold and turning up,
+//   and volatility + volume are expanding.
+// - Shorts only when price is below EMA, RSI/W%R are overbought and turning down,
+//   and volatility + volume are expanding.
+// - Use the Fusion Oscillator companion script for a separate panel like RSI.
+
+//@version=6
+indicator("Capital41 Fusion Scalp", overlay = true, max_labels_count = 50)
+
+// === Inputs ===
+emaLen      = input.int(50, "EMA length", minval = 5)
+showEMA     = input.bool(true, "Show EMA")
+
+rsiLen      = input.int(14, "RSI length", minval = 2)
+rsiOB       = input.int(65, "RSI overbought", minval = 50, maxval = 90)
+rsiOS       = input.int(35, "RSI oversold", minval = 10, maxval = 50)
+
+wrLen       = input.int(14, "Williams %R length", minval = 2)
+wrOB        = input.float(-20.0, "W%R overbought")
+wrOS        = input.float(-80.0, "W%R oversold")
+
+requireTurn = input.bool(true, "Require RSI/W%R turn")
+
+atrLen      = input.int(14, "ATR length", minval = 1)
+atrAvgLen   = input.int(20, "ATR avg length", minval = 5)
+atrExpMult  = input.float(1.1, "ATR expansion multiplier", minval = 1.0, maxval = 3.0)
+
+volLen      = input.int(50, "Volume SMA length", minval = 5)
+volMult     = input.float(1.0, "Volume multiplier", minval = 0.5, maxval = 3.0)
+
+showSignals = input.bool(true, "Show signals")
+showBadge   = input.bool(true, "Show status badge")
+badgeSize   = input.string("Normal", "Badge size", options = ["Small", "Normal", "Large", "Huge"])
+badgeBorder = input.int(2, "Badge border width", minval = 0, maxval = 4)
+
+showTrendBg  = input.bool(true, "Show trend background")
+showExpBg    = input.bool(false, "Show expansion background")
+showSignalBg = input.bool(true, "Show signal background")
+showBarColor = input.bool(false, "Color bars by trend")
+colorEMAByTrend = input.bool(true, "Color EMA by trend")
+
+colorBull    = color.new(color.lime, 0)
+colorBear    = color.new(color.red, 0)
+colorNeutral = color.new(color.gray, 80)
+
+// === Trend filter ===
+ema = ta.ema(close, emaLen)
+trendLong  = close > ema
+trendShort = close < ema
+emaColor = colorEMAByTrend ? (trendLong ? colorBull : trendShort ? colorBear : color.new(color.gray, 0)) : color.new(color.gray, 0)
+plot(showEMA ? ema : na, title = "EMA", color = emaColor, linewidth = 2)
+
+// === RSI ===
+rsi = ta.rsi(close, rsiLen)
+
+rsiLongTurn  = rsi[1] < rsiOS and rsi > rsi[1]
+rsiShortTurn = rsi[1] > rsiOB and rsi < rsi[1]
+
+rsiLong  = requireTurn ? rsiLongTurn  : rsi < rsiOS
+rsiShort = requireTurn ? rsiShortTurn : rsi > rsiOB
+
+// === Williams %R ===
+wr_manual(_high, _low, _close, _len) =>
+    hh = ta.highest(_high, _len)
+    ll = ta.lowest(_low, _len)
+    rng = hh - ll
+    rng == 0 ? -50.0 : (hh - _close) / rng * -100
+
+wr = wr_manual(high, low, close, wrLen)
+
+wrLongTurn  = wr[1] < wrOS and wr > wr[1]
+wrShortTurn = wr[1] > wrOB and wr < wr[1]
+
+wrLong  = requireTurn ? wrLongTurn  : wr < wrOS
+wrShort = requireTurn ? wrShortTurn : wr > wrOB
+
+// === ATR + Volume expansion ===
+atr = ta.atr(atrLen)
+atrAvg = ta.sma(atr, atrAvgLen)
+atrExp = atrAvg > 0 and atr > atrAvg * atrExpMult
+
+volSma = ta.sma(volume, volLen)
+volOk  = volSma > 0 and volume > volSma * volMult
+
+expansionOK = atrExp and volOk
+
+// === Fusion signals ===
+longSignal  = showSignals and trendLong and rsiLong and wrLong and expansionOK
+shortSignal = showSignals and trendShort and rsiShort and wrShort and expansionOK
+
+plotshape(longSignal, title = "Fusion Long", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.small, text = "L")
+
+plotshape(shortSignal, title = "Fusion Short", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.small, text = "S")
+
+alertcondition(longSignal, title = "Fusion Long",
+               message = "Fusion Long: RSI + W%R + EMA + ATR/Vol aligned on {{ticker}} ({{interval}})")
+
+alertcondition(shortSignal, title = "Fusion Short",
+               message = "Fusion Short: RSI + W%R + EMA + ATR/Vol aligned on {{ticker}} ({{interval}})")
+
+// Visual context
+color bg = na
+bg := showTrendBg ? (trendLong ? color.new(colorBull, 92) : trendShort ? color.new(colorBear, 92) : na) : na
+bg := showExpBg and expansionOK ? color.new(color.orange, 92) : bg
+bg := showSignalBg ? (longSignal ? color.new(colorBull, 88) : shortSignal ? color.new(colorBear, 88) : bg) : bg
+bgcolor(bg)
+
+barcolor(showBarColor ? (trendLong ? color.new(colorBull, 60) : trendShort ? color.new(colorBear, 60) : na) : na)
+
+// === Status badge (single row) ===
+var table status = table.new(position.bottom_left, 5, 1, border_width = badgeBorder)
+badgeTextSize = badgeSize == "Huge" ? size.huge : badgeSize == "Large" ? size.large : badgeSize == "Normal" ? size.normal : size.small
+
+if barstate.islast
+    if showBadge
+        trText  = trendLong ? " EMA+ " : trendShort ? " EMA- " : " EMA0 "
+        rsiText = rsiLong ? " RSI+ " : rsiShort ? " RSI- " : " RSI0 "
+        wrText  = wrLong ? " WR+ " : wrShort ? " WR- " : " WR0 "
+        exText  = expansionOK ? " VOL+ " : " VOL0 "
+        sigText = longSignal ? " SIG L " : shortSignal ? " SIG S " : " SIG - "
+
+        table.cell(status, 0, 0, trText,  bgcolor = trendLong ? color.new(colorBull, 70) : trendShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = badgeTextSize)
+        table.cell(status, 1, 0, rsiText, bgcolor = rsiLong ? color.new(colorBull, 70) : rsiShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = badgeTextSize)
+        table.cell(status, 2, 0, wrText,  bgcolor = wrLong ? color.new(colorBull, 70) : wrShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = badgeTextSize)
+        table.cell(status, 3, 0, exText,  bgcolor = expansionOK ? color.new(color.orange, 70) : colorNeutral, text_color = color.white, text_size = badgeTextSize)
+        table.cell(status, 4, 0, sigText, bgcolor = longSignal ? color.new(colorBull, 60) : shortSignal ? color.new(colorBear, 60) : colorNeutral, text_color = color.white, text_size = badgeTextSize)
+    else
+        for i = 0 to 4
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))

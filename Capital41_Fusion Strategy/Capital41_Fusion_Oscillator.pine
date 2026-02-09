@@ -1,0 +1,107 @@
+// CAPITAL41 FUSION OSCILLATOR (Companion)
+
+// What it does:
+// - Plots a 0–100 Fusion Oscillator based on the same four conditions used in
+//   Capital41 Fusion Scalp (EMA trend, RSI, W%R, ATR/Volume expansion).
+// - Designed as a separate panel (like RSI) for quick confluence reading.
+
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m timeframe on BTC or US stocks.
+// 4) Keep inputs synced with Capital41 Fusion Scalp.
+//
+// Usage guide (30m):
+// - 75+ = bullish confluence, 25- = bearish confluence.
+// - Use with Fusion Scalp signals for timing and confirmation.
+
+
+
+//@version=6
+indicator("Capital41 Fusion Oscillator", overlay = false)
+
+
+// Inputs (sync with Fusion Scalp)
+emaLen      = input.int(50, "EMA length", minval = 5)
+
+rsiLen      = input.int(14, "RSI length", minval = 2)
+rsiOB       = input.int(65, "RSI overbought", minval = 50, maxval = 90)
+rsiOS       = input.int(35, "RSI oversold", minval = 10, maxval = 50)
+
+wrLen       = input.int(14, "Williams %R length", minval = 2)
+wrOB        = input.float(-20.0, "W%R overbought")
+wrOS        = input.float(-80.0, "W%R oversold")
+
+requireTurn = input.bool(true, "Require RSI/W%R turn")
+
+atrLen      = input.int(14, "ATR length", minval = 1)
+atrAvgLen   = input.int(20, "ATR avg length", minval = 5)
+atrExpMult  = input.float(1.1, "ATR expansion multiplier", minval = 1.0, maxval = 3.0)
+
+volLen      = input.int(50, "Volume SMA length", minval = 5)
+volMult     = input.float(1.0, "Volume multiplier", minval = 0.5, maxval = 3.0)
+
+oscSmooth   = input.int(3, "Oscillator smoothing", minval = 1, maxval = 20)
+showZones   = input.bool(true, "Show 25/50/75 zones")
+showBg      = input.bool(true, "Background highlight")
+
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+
+// === Trend filter ===
+ema = ta.ema(close, emaLen)
+trendLong  = close > ema
+trendShort = close < ema
+
+// === RSI ===
+rsi = ta.rsi(close, rsiLen)
+
+rsiLongTurn  = rsi[1] < rsiOS and rsi > rsi[1]
+rsiShortTurn = rsi[1] > rsiOB and rsi < rsi[1]
+
+rsiLong  = requireTurn ? rsiLongTurn  : rsi < rsiOS
+rsiShort = requireTurn ? rsiShortTurn : rsi > rsiOB
+
+// === Williams %R ===
+wr_manual(_high, _low, _close, _len) =>
+    hh = ta.highest(_high, _len)
+    ll = ta.lowest(_low, _len)
+    rng = hh - ll
+    rng == 0 ? -50.0 : (hh - _close) / rng * -100
+
+wr = wr_manual(high, low, close, wrLen)
+
+wrLongTurn  = wr[1] < wrOS and wr > wr[1]
+wrShortTurn = wr[1] > wrOB and wr < wr[1]
+
+wrLong  = requireTurn ? wrLongTurn  : wr < wrOS
+wrShort = requireTurn ? wrShortTurn : wr > wrOB
+
+// === ATR + Volume expansion ===
+atr = ta.atr(atrLen)
+atrAvg = ta.sma(atr, atrAvgLen)
+atrExp = atrAvg > 0 and atr > atrAvg * atrExpMult
+
+volSma = ta.sma(volume, volLen)
+volOk  = volSma > 0 and volume > volSma * volMult
+
+expansionOK = atrExp and volOk
+
+
+// Fusion Oscillator (0–100)
+scoreLong  = (trendLong ? 1 : 0) + (rsiLong ? 1 : 0) + (wrLong ? 1 : 0) + (expansionOK ? 1 : 0)
+scoreShort = (trendShort ? 1 : 0) + (rsiShort ? 1 : 0) + (wrShort ? 1 : 0) + (expansionOK ? 1 : 0)
+
+fusionRaw = scoreLong - scoreShort
+fusion    = (fusionRaw + 4) * 12.5
+fusionSm  = ta.sma(fusion, oscSmooth)
+
+oscColor = fusionRaw > 0 ? colorBull : fusionRaw < 0 ? colorBear : color.new(color.gray, 0)
+plot(fusionSm, title = "Fusion Oscillator", color = oscColor, linewidth = 2)
+
+plot(showZones ? 75 : na, title = "Upper", color = color.new(color.gray, 70))
+plot(showZones ? 50 : na, title = "Mid",   color = color.new(color.gray, 80))
+plot(showZones ? 25 : na, title = "Lower", color = color.new(color.gray, 70))
+
+bgcolor(showBg ? (fusionSm >= 75 ? color.new(colorBull, 90) : fusionSm <= 25 ? color.new(colorBear, 90) : na) : na)
