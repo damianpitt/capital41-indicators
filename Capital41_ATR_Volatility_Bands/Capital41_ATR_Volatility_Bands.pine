@@ -1,0 +1,78 @@
+
+// CAPITAL41 ATR VOLATILITY BANDS
+//
+// What it does:
+// - Draws ATR-based bands around a moving average to visualize volatility range.
+// - Optional recent-range box highlights the last N bars' high/low range.
+// - Optional expansion highlight when ATR is rising above its average.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Adjust ATR Multiplier to widen or tighten the bands.
+//
+// Usage guide (30m/4h):
+// - Bands help spot expanding volatility and mean-reversion edges.
+// - If price rides the band, trend is strong; if it rejects, expect pullback.
+// - Volatility box shows recent range; use it with sweeps or session context.
+
+
+
+//@version=6
+indicator("Capital41 ATR Volatility Bands", overlay = true, max_boxes_count = 20)
+
+
+// Inputs
+basisType     = input.string("EMA", "Basis type", options = ["EMA", "SMA"])
+basisLen      = input.int(50, "Basis length", minval = 5)
+atrLen        = input.int(14, "ATR length", minval = 1)
+atrMult       = input.float(1.5, "ATR multiplier", minval = 0.1, maxval = 5.0)
+
+showBasis     = input.bool(false, "Show basis")
+showBands     = input.bool(true, "Show ATR bands")
+showVolBox    = input.bool(true, "Show recent-range box")
+boxLookback   = input.int(20, "Range lookback bars", minval = 5, maxval = 200)
+
+showExpansion = input.bool(false, "Highlight volatility expansion")
+expFactor     = input.float(1.2, "Expansion factor", minval = 1.0, maxval = 3.0)
+
+colorBand  = color.new(color.blue, 0)
+colorBasis = color.new(color.gray, 0)
+colorBox   = color.new(color.gray, 90)
+
+// Basis + ATR
+basis = basisType == "EMA" ? ta.ema(close, basisLen) : ta.sma(close, basisLen)
+atr   = ta.atr(atrLen)
+upper = basis + atr * atrMult
+lower = basis - atr * atrMult
+
+
+plot(showBasis ? basis : na, title = "Basis", color = colorBasis, linewidth = 1)
+plot(showBands ? upper : na, title = "ATR Upper", color = color.new(colorBand, 40), linewidth = 1)
+plot(showBands ? lower : na, title = "ATR Lower", color = color.new(colorBand, 40), linewidth = 1)
+
+
+// Recent-range box
+var box volBox = na
+if showVolBox
+    hi = ta.highest(high, boxLookback)
+    lo = ta.lowest(low, boxLookback)
+    left = bar_index - boxLookback + 1
+    if na(volBox)
+        volBox := box.new(left = left, right = bar_index, top = hi, bottom = lo, border_width = 0, bgcolor = colorBox)
+    else
+        box.set_left(volBox, left)
+        box.set_right(volBox, bar_index)
+        box.set_top(volBox, hi)
+        box.set_bottom(volBox, lo)
+else
+    if not na(volBox)
+        box.delete(volBox)
+        volBox := na
+
+
+// Expansion highlight
+atrAvg = ta.sma(atr, atrLen)
+volExp = atrAvg > 0 and atr > atrAvg * expFactor
+bgcolor(showExpansion and volExp ? color.new(color.orange, 92) : na)
