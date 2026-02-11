@@ -1,0 +1,169 @@
+
+// CAPITAL41 REGIME MATRIX
+//
+// What it does:
+// - Classifies each bar into one of four states: Trend, Expansion,
+//   Compression, or Mean Reversion.
+// - Uses Hurst estimate, ADX slope, and realized volatility slope to avoid
+//   one-dimensional trend filters.
+// - Auto-switches EMA bias and ATR stop width by regime.
+// - Includes a pressure meter (0-100) to read directional pressure quickly.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Keep defaults first, then tune thresholds per asset.
+//
+// Usage guide (30m/4h):
+// - Trend state (green) favors continuation entries with wider stop logic.
+// - Expansion state (orange) signals fast tape with elevated impulse risk.
+// - Compression state (blue) usually precedes breakouts; avoid forcing trend.
+// - Mean Reversion state (gray) favors fades and tighter risk.
+
+
+
+//@version=6
+indicator("Capital41 Regime Matrix", overlay = true, max_labels_count = 100)
+
+// Inputs
+baseEmaLen        = input.int(50, "Base EMA length", minval = 5)
+atrLen            = input.int(14, "ATR length", minval = 1)
+
+hurstLen          = input.int(100, "Hurst lookback", minval = 20, maxval = 300)
+trendHurst        = input.float(0.58, "Trend Hurst threshold", minval = 0.50, maxval = 0.90, step = 0.01)
+meanRevHurst      = input.float(0.46, "Mean-reversion Hurst threshold", minval = 0.10, maxval = 0.50, step = 0.01)
+
+adxLen            = input.int(14, "ADX length", minval = 2)
+adxSlopeLen       = input.int(5, "ADX slope bars", minval = 1, maxval = 50)
+adxTrendMin       = input.float(22.0, "ADX trend minimum", minval = 5.0, maxval = 60.0, step = 0.5)
+adxCompressionMax = input.float(16.0, "ADX compression maximum", minval = 5.0, maxval = 40.0, step = 0.5)
+
+rvLen             = input.int(20, "Realized volatility length", minval = 5, maxval = 100)
+rvSlopeLen        = input.int(5, "Volatility slope bars", minval = 1, maxval = 50)
+rvSlopeThreshold  = input.float(0.20, "Volatility slope threshold", minval = 0.01, maxval = 3.0, step = 0.01)
+
+trendStopMult     = input.float(2.8, "Trend ATR stop", minval = 0.5, maxval = 6.0)
+expStopMult       = input.float(2.2, "Expansion ATR stop", minval = 0.5, maxval = 6.0)
+compStopMult      = input.float(1.3, "Compression ATR stop", minval = 0.5, maxval = 6.0)
+mrStopMult        = input.float(1.8, "Mean-reversion ATR stop", minval = 0.5, maxval = 6.0)
+
+showEMA           = input.bool(true, "Show adaptive EMA")
+showStops         = input.bool(true, "Show adaptive ATR stops")
+showBg            = input.bool(true, "Show regime background")
+showLabels        = input.bool(false, "Show regime change labels")
+showBadge         = input.bool(true, "Show status badge")
+pressureSmooth    = input.int(3, "Pressure smoothing", minval = 1, maxval = 20)
+
+colorTrend = color.new(color.lime, 0)
+colorExp   = color.new(color.orange, 0)
+colorComp  = color.new(color.aqua, 0)
+colorMR    = color.new(color.gray, 0)
+colorBull  = color.new(color.lime, 0)
+colorBear  = color.new(color.red, 0)
+
+f_clamp(_x, _lo, _hi) =>
+    math.max(_lo, math.min(_hi, _x))
+
+f_hurst(_src, _len) =>
+    rng = ta.highest(_src, _len) - ta.lowest(_src, _len)
+    st = ta.stdev(_src, _len)
+    raw = st > 0 and _len > 1 ? math.log(rng / st) / math.log(_len) : 0.5
+    f_clamp(raw, 0.0, 1.0)
+
+
+// Core metrics
+hurstVal = f_hurst(close, hurstLen)
+adxVal = ta.adx(adxLen)
+adxSlope = adxVal - adxVal[adxSlopeLen]
+
+ret = close[1] > 0 ? math.log(close / close[1]) : 0.0
+rv = ta.stdev(ret, rvLen) * 100.0
+rvSlope = rv - rv[rvSlopeLen]
+
+// Regime classification
+trendState = hurstVal >= trendHurst and adxVal >= adxTrendMin and adxSlope > 0
+expState = rvSlope > rvSlopeThreshold and adxSlope > 0 and not trendState
+compState = rvSlope < -rvSlopeThreshold and adxVal <= adxCompressionMax
+mrState = hurstVal <= meanRevHurst and adxVal < adxTrendMin and not compState
+
+regime = trendState ? 1 : expState ? 2 : compState ? 3 : mrState ? 4 : 4
+regimeText = regime == 1 ? "TREND" : regime == 2 ? "EXP" : regime == 3 ? "COMP" : "MR"
+regimeColor = regime == 1 ? colorTrend : regime == 2 ? colorExp : regime == 3 ? colorComp : colorMR
+
+// Adaptive EMA profile by regime
+lenTrend = math.max(5, int(math.round(baseEmaLen * 1.35)))
+lenExp = math.max(5, int(math.round(baseEmaLen * 0.95)))
+lenComp = math.max(5, int(math.round(baseEmaLen * 0.65)))
+lenMR = math.max(5, int(math.round(baseEmaLen * 0.75)))
+
+emaTrend = ta.ema(close, lenTrend)
+emaExp = ta.ema(close, lenExp)
+emaComp = ta.ema(close, lenComp)
+emaMR = ta.ema(close, lenMR)
+
+emaAdaptive = regime == 1 ? emaTrend : regime == 2 ? emaExp : regime == 3 ? emaComp : emaMR
+atrVal = ta.atr(atrLen)
+stopMult = regime == 1 ? trendStopMult : regime == 2 ? expStopMult : regime == 3 ? compStopMult : mrStopMult
+longStop = emaAdaptive - atrVal * stopMult
+shortStop = emaAdaptive + atrVal * stopMult
+
+trendUp = close >= emaAdaptive
+emaColor = trendUp ? colorBull : colorBear
+
+plot(showEMA ? emaAdaptive : na, title = "Adaptive EMA", color = emaColor, linewidth = 2)
+plot(showStops ? longStop : na, title = "Adaptive Long Stop", color = color.new(colorBull, 40), linewidth = 1)
+plot(showStops ? shortStop : na, title = "Adaptive Short Stop", color = color.new(colorBear, 40), linewidth = 1)
+
+bgcolor(showBg ? color.new(regimeColor, 90) : na)
+
+// Pressure meter (0-100): <40 bearish pressure, >60 bullish pressure
+adxNorm = f_clamp((adxVal - 10.0) / 35.0, 0.0, 1.0)
+hurstNorm = f_clamp((hurstVal - 0.5) / 0.25, 0.0, 1.0)
+driftNorm = atrVal > 0 ? f_clamp(((close - emaAdaptive) / (atrVal * 2.5)) * 0.5 + 0.5, 0.0, 1.0) : 0.5
+pressureRaw = 100.0 * (0.45 * adxNorm + 0.25 * hurstNorm + 0.30 * driftNorm)
+pressure = ta.ema(pressureRaw, pressureSmooth)
+
+pressureBull = pressure >= 60
+pressureBear = pressure <= 40
+
+regimeChanged = regime != regime[1] and barstate.isconfirmed
+if showLabels and regimeChanged
+    y = regime == 1 ? low : high
+    sty = regime == 1 ? label.style_label_up : label.style_label_down
+    label.new(bar_index, y, regimeText, style = sty, color = regimeColor, textcolor = color.white, size = size.tiny)
+
+
+// Status badge
+var table status = table.new(position.bottom_left, 5, 1, border_width = 1)
+if barstate.islast
+    if showBadge
+        rgText = " RG " + regimeText + " "
+        hText = " H " + str.tostring(hurstVal, "#.00") + " "
+        adxText = " ADXd " + str.tostring(adxSlope, "#.00") + " "
+        rvText = " RVd " + str.tostring(rvSlope, "#.00") + " "
+        pText = " P " + str.tostring(pressure, "#.0") + " "
+
+        table.cell(status, 0, 0, rgText, bgcolor = color.new(regimeColor, 70), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, hText, bgcolor = color.new(color.gray, 80), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, adxText, bgcolor = adxSlope >= 0 ? color.new(colorBull, 75) : color.new(colorBear, 75), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 3, 0, rvText, bgcolor = rvSlope >= 0 ? color.new(colorExp, 70) : color.new(colorComp, 70), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 4, 0, pText, bgcolor = pressureBull ? color.new(colorBull, 65) : pressureBear ? color.new(colorBear, 65) : color.new(color.gray, 75), text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 4
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+alertcondition(regimeChanged and regime == 1, title = "Regime Trend",
+               message = "Regime Matrix: Trend state on {{ticker}} ({{interval}})")
+
+alertcondition(regimeChanged and regime == 2, title = "Regime Expansion",
+               message = "Regime Matrix: Expansion state on {{ticker}} ({{interval}})")
+
+alertcondition(regimeChanged and regime == 3, title = "Regime Compression",
+               message = "Regime Matrix: Compression state on {{ticker}} ({{interval}})")
+
+alertcondition(regimeChanged and regime == 4, title = "Regime Mean Reversion",
+               message = "Regime Matrix: Mean Reversion state on {{ticker}} ({{interval}})")
+
+alertcondition(pressureBull, title = "Bullish Pressure", message = "Regime Matrix: pressure > 60 on {{ticker}} ({{interval}})")
+alertcondition(pressureBear, title = "Bearish Pressure", message = "Regime Matrix: pressure < 40 on {{ticker}} ({{interval}})")
