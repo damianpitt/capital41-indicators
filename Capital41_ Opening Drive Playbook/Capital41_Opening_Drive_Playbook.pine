@@ -1,0 +1,276 @@
+
+// CAPITAL41 OPENING DRIVE PLAYBOOK
+
+// What it does:
+// - Builds a dynamic Opening Drive (first 30/60 min) from your chosen session.
+// - Computes pace and relative volume so the drive can be read as slow/normal/fast.
+// - Projects adaptive continuation lines (drive edge + VWAP deviation).
+// - Projects adaptive fade lines (drive midpoint +/- sigma) for mean-revert targets.
+// - Tracks session stats: gap size, overnight drift, and first pullback depth.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use intraday charts (5m-30m recommended).
+// 4) Set session timezone/session hours to your market.
+//
+// Usage guide (30m/4h):
+// - Strong drive = high pace + volume ratio > 1.0x.
+// - Continuation lines are trigger zones for break-and-go behavior.
+// - Fade lines are mean-reversion targets when extension starts failing.
+// - Use pullback depth to size risk after first breakout.
+
+
+
+//@version=6
+indicator("Capital41 Opening Drive Playbook", overlay = true, max_boxes_count = 80, max_labels_count = 100, max_lines_count = 80)
+
+// Inputs
+useExchangeTz = input.bool(false, "Use exchange timezone")
+sessTz = input.string("America/New_York", "Session timezone",
+                      options = ["America/New_York", "America/Chicago", "Etc/UTC", "Europe/London", "Asia/Tokyo"])
+sessTimes = input.session("0930-1600", "Session times")
+
+
+driveMinutes = input.int(30, "Opening drive minutes", options = [30, 60])
+volAvgSessions = input.int(20, "Drive volume average sessions", minval = 5, maxval = 100)
+sigmaLen = input.int(20, "Sigma length", minval = 5, maxval = 100)
+
+contMult = input.float(1.0, "Continuation multiplier", minval = 0.1, maxval = 3.0)
+fadeSigmaMult = input.float(1.0, "Fade sigma multiplier", minval = 0.1, maxval = 3.0)
+
+showDriveBox = input.bool(true, "Show opening drive box")
+showDriveLevels = input.bool(true, "Show drive levels")
+showTriggerLines = input.bool(true, "Show continuation/fade lines")
+showSessionVWAP = input.bool(true, "Show session VWAP")
+showStats = input.bool(true, "Show stats badge")
+
+colorDrive = color.new(color.blue, 88)
+colorContUp = color.new(color.lime, 0)
+colorContDn = color.new(color.red, 0)
+colorFade = color.new(color.orange, 0)
+
+
+f_arrayAvg(_arr) =>
+    sz = array.size(_arr)
+    if sz == 0
+        na
+    else
+        s = 0.0
+        for i = 0 to sz - 1
+            s += array.get(_arr, i)
+        s / sz
+
+// Session state
+inSession = useExchangeTz ? not na(time(timeframe.period, sessTimes)) : not na(time(timeframe.period, sessTimes, sessTz))
+newSession = inSession and not inSession[1]
+sessionEnded = not inSession and inSession[1]
+
+// Persistent state
+var float sessOpen = na
+var float prevSessionClose = na
+var float overnightDrift = na
+var float gapSize = na
+var int sessStartTime = na
+
+var float driveHigh = na
+var float driveLow = na
+var float driveRange = na
+var float driveMid = na
+var float driveVol = na
+var float drivePace = na
+var float driveVolRatio = na
+var bool driveLocked = false
+var float contUpper = na
+var float contLower = na
+var float fadeUpper = na
+var float fadeLower = na
+var float firstPullbackDepth = na
+var bool breakoutSeen = false
+var int breakoutDir = 0
+var float breakoutExtreme = na
+var float cumPV = 0.0
+var float cumV = 0.0
+var box driveBox = na
+var float[] histDriveVol = array.new_float()
+
+priorDayClose = request.security(syminfo.tickerid, "D", close[1])
+
+if sessionEnded
+    prevSessionClose := close[1]
+    if not na(driveBox)
+        box.set_right(driveBox, bar_index)
+
+if newSession
+    sessOpen := open
+    sessStartTime := time
+
+    overnightDrift := not na(prevSessionClose) ? sessOpen - prevSessionClose : na
+    gapSize := not na(priorDayClose) ? sessOpen - priorDayClose : na
+
+    driveHigh := na
+    driveLow := na
+    driveRange := na
+    driveMid := na
+    driveVol := 0.0
+    drivePace := na
+    driveVolRatio := na
+    driveLocked := false
+
+    contUpper := na
+    contLower := na
+    fadeUpper := na
+    fadeLower := na
+
+    firstPullbackDepth := na
+    breakoutSeen := false
+    breakoutDir := 0
+    breakoutExtreme := na
+
+    cumPV := 0.0
+    cumV := 0.0
+
+    if showDriveBox
+        driveBox := box.new(left = bar_index, right = bar_index + 1, top = high, bottom = low, border_width = 0, bgcolor = colorDrive)
+    else
+        driveBox := na
+
+if inSession
+    tp = hlc3
+    cumPV += tp * volume
+    cumV += volume
+
+
+sessionVwap = cumV > 0 ? cumPV / cumV : na
+
+elapsedMin = inSession and not na(sessStartTime) ? (time - sessStartTime) / 60000.0 : na
+insideDrive = inSession and not driveLocked and not na(elapsedMin) and elapsedMin < driveMinutes
+
+if insideDrive
+    driveHigh := na(driveHigh) ? high : math.max(driveHigh, high)
+    driveLow := na(driveLow) ? low : math.min(driveLow, low)
+    driveVol += volume
+
+    if showDriveBox and not na(driveBox)
+        box.set_top(driveBox, driveHigh)
+        box.set_bottom(driveBox, driveLow)
+        box.set_right(driveBox, bar_index + 1)
+
+if inSession and not driveLocked and not na(elapsedMin) and elapsedMin >= driveMinutes and not na(driveHigh) and not na(driveLow)
+    driveLocked := true
+
+    driveRange := driveHigh - driveLow
+    driveMid := (driveHigh + driveLow) * 0.5
+
+    sigma = ta.stdev(close, sigmaLen)
+    vwapDev = not na(sessionVwap) ? math.abs(driveMid - sessionVwap) : driveRange * 0.25
+    contOffset = math.max(vwapDev, driveRange * 0.15) * contMult
+
+    contUpper := driveHigh + contOffset
+    contLower := driveLow - contOffset
+
+    fadeUpper := driveMid + sigma * fadeSigmaMult
+    fadeLower := driveMid - sigma * fadeSigmaMult
+
+    drivePace := driveMinutes > 0 ? driveRange / driveMinutes : na
+    avgDriveVol = f_arrayAvg(histDriveVol)
+    driveVolRatio := not na(avgDriveVol) and avgDriveVol > 0 ? driveVol / avgDriveVol : na
+
+    array.push(histDriveVol, driveVol)
+    if array.size(histDriveVol) > volAvgSessions
+        array.shift(histDriveVol)
+
+
+if inSession and driveLocked
+    if not breakoutSeen
+        if high > driveHigh
+            breakoutSeen := true
+            breakoutDir := 1
+            breakoutExtreme := high
+            firstPullbackDepth := 0.0
+        else if low < driveLow
+            breakoutSeen := true
+            breakoutDir := -1
+            breakoutExtreme := low
+            firstPullbackDepth := 0.0
+    else
+        if breakoutDir == 1
+            breakoutExtreme := math.max(breakoutExtreme, high)
+            retrace = breakoutExtreme - low
+            firstPullbackDepth := math.max(firstPullbackDepth, retrace)
+        else if breakoutDir == -1
+            breakoutExtreme := math.min(breakoutExtreme, low)
+            retrace = high - breakoutExtreme
+            firstPullbackDepth := math.max(firstPullbackDepth, retrace)
+
+// Plot lines
+plot(showSessionVWAP and inSession ? sessionVwap : na, title = "Session VWAP", color = color.new(color.blue, 0), linewidth = 2)
+
+plot(showDriveLevels and inSession ? driveHigh : na, title = "Drive High", color = color.new(color.green, 25), linewidth = 1, style = plot.style_linebr)
+plot(showDriveLevels and inSession ? driveLow : na, title = "Drive Low", color = color.new(color.red, 25), linewidth = 1, style = plot.style_linebr)
+
+plot(showTriggerLines and inSession and driveLocked ? contUpper : na, title = "Continuation Upper", color = colorContUp, linewidth = 2, style = plot.style_linebr)
+plot(showTriggerLines and inSession and driveLocked ? contLower : na, title = "Continuation Lower", color = colorContDn, linewidth = 2, style = plot.style_linebr)
+
+plot(showTriggerLines and inSession and driveLocked ? fadeUpper : na, title = "Fade Upper", color = color.new(colorFade, 15), linewidth = 1, style = plot.style_linebr)
+plot(showTriggerLines and inSession and driveLocked ? fadeLower : na, title = "Fade Lower", color = color.new(colorFade, 15), linewidth = 1, style = plot.style_linebr)
+
+contLong = inSession and driveLocked and ta.crossover(close, contUpper)
+contShort = inSession and driveLocked and ta.crossunder(close, contLower)
+fadeUpTouch = inSession and driveLocked and high >= fadeUpper and high[1] < fadeUpper
+fadeDownTouch = inSession and driveLocked and low <= fadeLower and low[1] > fadeLower
+
+plotshape(contLong, title = "Continuation Long", style = shape.triangleup,
+          location = location.belowbar, color = colorContUp, size = size.tiny, text = "C")
+
+plotshape(contShort, title = "Continuation Short", style = shape.triangledown,
+          location = location.abovebar, color = colorContDn, size = size.tiny, text = "C")
+
+plotshape(fadeUpTouch, title = "Fade Upper Touch", style = shape.circle,
+          location = location.abovebar, color = color.new(colorFade, 0), size = size.tiny, text = "F")
+
+plotshape(fadeDownTouch, title = "Fade Lower Touch", style = shape.circle,
+          location = location.belowbar, color = color.new(colorFade, 0), size = size.tiny, text = "F")
+
+
+// Stats badge
+var table stats = table.new(position.bottom_right, 2, 7, border_width = 1)
+if barstate.islast
+    if showStats
+        stateText = not inSession ? "OUT" : driveLocked ? "POST-DRIVE" : "OPEN-DRIVE"
+        rangeText = not na(driveRange) ? str.tostring(driveRange, "#.####") : "na"
+        paceText = not na(drivePace) ? str.tostring(drivePace, "#.####") : "na"
+        volText = not na(driveVolRatio) ? str.tostring(driveVolRatio, "#.00") + "x" : "na"
+        gapText = not na(gapSize) ? str.tostring(gapSize, "#.####") : "na"
+        onText = not na(overnightDrift) ? str.tostring(overnightDrift, "#.####") : "na"
+        pullText = not na(firstPullbackDepth) ? str.tostring(firstPullbackDepth, "#.####") : "na"
+
+        table.cell(stats, 0, 0, "State", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 1, 0, stateText, bgcolor = color.new(color.gray, 70), text_color = color.white, text_size = size.tiny)
+
+        table.cell(stats, 0, 1, "Drive Range", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 1, 1, rangeText, bgcolor = color.new(color.blue, 78), text_color = color.white, text_size = size.tiny)
+
+        table.cell(stats, 0, 2, "Pace", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 1, 2, paceText, bgcolor = color.new(color.blue, 82), text_color = color.white, text_size = size.tiny)
+
+        table.cell(stats, 0, 3, "Drive Vol", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 1, 3, volText, bgcolor = color.new(color.orange, 76), text_color = color.white, text_size = size.tiny)
+
+        table.cell(stats, 0, 4, "Gap Size", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 1, 4, gapText, bgcolor = color.new(color.purple, 74), text_color = color.white, text_size = size.tiny)
+
+        table.cell(stats, 0, 5, "ON Drift", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 1, 5, onText, bgcolor = color.new(color.purple, 80), text_color = color.white, text_size = size.tiny)
+
+        table.cell(stats, 0, 6, "1st Pullback", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 1, 6, pullText, bgcolor = color.new(color.gray, 72), text_color = color.white, text_size = size.tiny)
+    else
+        for r = 0 to 6
+            table.cell(stats, 0, r, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+            table.cell(stats, 1, r, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+alertcondition(contLong, title = "Continuation Long", message = "Opening Drive: continuation long trigger on {{ticker}} ({{interval}})")
+alertcondition(contShort, title = "Continuation Short", message = "Opening Drive: continuation short trigger on {{ticker}} ({{interval}})")
+alertcondition(fadeUpTouch, title = "Fade Upper Touch", message = "Opening Drive: fade upper touch on {{ticker}} ({{interval}})")
+alertcondition(fadeDownTouch, title = "Fade Lower Touch", message = "Opening Drive: fade lower touch on {{ticker}} ({{interval}})")
