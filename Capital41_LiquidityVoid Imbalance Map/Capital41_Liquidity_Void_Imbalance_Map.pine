@@ -1,0 +1,294 @@
+// CAPITAL41 LIQUIDITY VOID + IMBALANCE MAP
+//
+// What it does:
+// - Detects bullish/bearish fair value gaps (imbalances) on LTF and optional HTF.
+// - Merges overlapping zones of the same side to reduce chart clutter.
+// - Tracks each zone's age and fill percentage to rank urgency.
+// - Highlights breaker events when a fully-filled zone fails through its far edge.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 5m-1h for intraday mapping; keep HTF enabled for context.
+// 4) Start with defaults, then raise Max active zones only if needed.
+//
+// Usage guide (30m/4h):
+// - Fresh HTF zones (low age, low fill %) carry the highest urgency.
+// - Top-entry alerts catch first contact; bottom-entry alerts catch deep fills.
+// - Breaker tags mark when a void fills and price pushes through the far side.
+// - Use with Confluence/Fusion entries so zones become location filters.
+
+//@version=6
+indicator("Capital41 Liquidity Void + Imbalance Map", overlay = true, max_boxes_count = 300, max_labels_count = 200)
+
+// Inputs
+useHTF          = input.bool(true, "Use higher-timeframe voids")
+htf             = input.timeframe("240", "Higher timeframe")
+mergeOverlaps   = input.bool(true, "Merge overlapping zones")
+maxZones        = input.int(35, "Max active zones", minval = 5, maxval = 150)
+minTicks        = input.int(2, "Minimum gap size (ticks)", minval = 1, maxval = 100)
+
+freshBars       = input.int(80, "Freshness bars", minval = 10, maxval = 500)
+freshTransp     = input.int(78, "Fresh zone transparency", minval = 0, maxval = 100)
+staleTransp     = input.int(93, "Stale zone transparency", minval = 0, maxval = 100)
+removeFilled    = input.bool(false, "Remove fully-filled zones")
+showRankTable   = input.bool(true, "Show urgency table")
+showFilledLabel = input.bool(true, "Show breaker labels")
+
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+
+f_clamp(_x, _lo, _hi) =>
+    math.max(_lo, math.min(_hi, _x))
+
+f_gapSizeOk(_top, _bottom) =>
+    (_top - _bottom) >= syminfo.mintick * minTicks
+
+f_fillPct(_dir, _top, _bottom) =>
+    h = _top - _bottom
+    if h <= 0
+        0.0
+    else
+        raw = _dir == 1 ? (_top - math.max(low, _bottom)) / h * 100.0 : (math.min(high, _top) - _bottom) / h * 100.0
+        f_clamp(raw, 0.0, 100.0)
+
+f_urgency(_fillPct, _age, _freshBars, _srcWeight) =>
+    freshness = f_clamp(1.0 - _age / _freshBars, 0.0, 1.0)
+    unfilled = 100.0 - _fillPct
+    unfilled * (0.55 + 0.45 * freshness) * _srcWeight
+
+var box[]   zoneBox    = array.new_box()
+var float[] zoneTop    = array.new_float()
+var float[] zoneBottom = array.new_float()
+var int[]   zoneDir    = array.new_int()     // 1 = bull, -1 = bear
+var int[]   zoneBorn   = array.new_int()
+var float[] zoneFill   = array.new_float()   // 0..100
+var bool[]  zoneActive = array.new_bool()
+var string[] zoneSrc   = array.new_string()  // LTF or HTF
+
+f_addZone(_top, _bottom, _dir, _src) =>
+    if _top > _bottom and f_gapSizeOk(_top, _bottom)
+        merged = false
+
+        if mergeOverlaps and array.size(zoneTop) > 0
+            for i = 0 to array.size(zoneTop) - 1
+                if array.get(zoneActive, i) and array.get(zoneDir, i) == _dir
+                    t = array.get(zoneTop, i)
+                    b = array.get(zoneBottom, i)
+                    overlap = _bottom <= t and _top >= b
+                    if overlap
+                        nTop = math.max(t, _top)
+                        nBottom = math.min(b, _bottom)
+                        array.set(zoneTop, i, nTop)
+                        array.set(zoneBottom, i, nBottom)
+                        array.set(zoneBorn, i, math.min(array.get(zoneBorn, i), bar_index))
+                        mergedFill = math.min(array.get(zoneFill, i), f_fillPct(_dir, nTop, nBottom))
+                        array.set(zoneFill, i, mergedFill)
+                        bx = array.get(zoneBox, i)
+                        box.set_top(bx, nTop)
+                        box.set_bottom(bx, nBottom)
+                        box.set_right(bx, bar_index + 1)
+                        merged := true
+                        break
+
+        if not merged
+            if array.size(zoneTop) >= maxZones
+                oldBox = array.shift(zoneBox)
+                box.delete(oldBox)
+                array.shift(zoneTop)
+                array.shift(zoneBottom)
+                array.shift(zoneDir)
+                array.shift(zoneBorn)
+                array.shift(zoneFill)
+                array.shift(zoneActive)
+                array.shift(zoneSrc)
+
+            initColor = _dir == 1 ? color.new(colorBull, freshTransp) : color.new(colorBear, freshTransp)
+            initBorder = _dir == 1 ? color.new(colorBull, 35) : color.new(colorBear, 35)
+            bw = _src == "HTF" ? 2 : 1
+            bxNew = box.new(left = bar_index - 1, right = bar_index + 1, top = _top, bottom = _bottom,
+                            bgcolor = initColor, border_color = initBorder, border_width = bw)
+
+            array.push(zoneBox, bxNew)
+            array.push(zoneTop, _top)
+            array.push(zoneBottom, _bottom)
+            array.push(zoneDir, _dir)
+            array.push(zoneBorn, bar_index)
+            array.push(zoneFill, 0.0)
+            array.push(zoneActive, true)
+            array.push(zoneSrc, _src)
+
+// LTF FVG detection (3-candle imbalance)
+ltfBull = barstate.isconfirmed and low > high[2]
+ltfBear = barstate.isconfirmed and high < low[2]
+
+if ltfBull
+    f_addZone(low, high[2], 1, "LTF")
+
+if ltfBear
+    f_addZone(low[2], high, -1, "LTF")
+
+// HTF FVG detection, confirmed on HTF close
+htfTime = request.security(syminfo.tickerid, htf, time, lookahead = barmerge.lookahead_off)
+newHtfBar = ta.change(htfTime) != 0
+
+htfBullRaw = request.security(syminfo.tickerid, htf, low > high[2], lookahead = barmerge.lookahead_off)
+htfBearRaw = request.security(syminfo.tickerid, htf, high < low[2], lookahead = barmerge.lookahead_off)
+
+htfBullTop = request.security(syminfo.tickerid, htf, low, lookahead = barmerge.lookahead_off)
+htfBullBottom = request.security(syminfo.tickerid, htf, high[2], lookahead = barmerge.lookahead_off)
+
+htfBearTop = request.security(syminfo.tickerid, htf, low[2], lookahead = barmerge.lookahead_off)
+htfBearBottom = request.security(syminfo.tickerid, htf, high, lookahead = barmerge.lookahead_off)
+
+htfBullConfirmed = not na(htfBullRaw[1]) and htfBullRaw[1]
+htfBearConfirmed = not na(htfBearRaw[1]) and htfBearRaw[1]
+
+if useHTF and newHtfBar
+    if htfBullConfirmed
+        f_addZone(htfBullTop[1], htfBullBottom[1], 1, "HTF")
+    if htfBearConfirmed
+        f_addZone(htfBearTop[1], htfBearBottom[1], -1, "HTF")
+
+// Zone maintenance, fill tracking, urgency ranking
+enteredTop = false
+enteredBottom = false
+breakerUp = false
+breakerDown = false
+
+int topIdx1 = -1
+int topIdx2 = -1
+int topIdx3 = -1
+float topScore1 = -1.0
+float topScore2 = -1.0
+float topScore3 = -1.0
+
+zoneCount = array.size(zoneTop)
+if zoneCount > 0
+    for i = 0 to zoneCount - 1
+        if array.get(zoneActive, i)
+            dir = array.get(zoneDir, i)
+            top = array.get(zoneTop, i)
+            bottom = array.get(zoneBottom, i)
+            born = array.get(zoneBorn, i)
+            src = array.get(zoneSrc, i)
+            bx = array.get(zoneBox, i)
+
+            age = bar_index - born
+            ageRatio = f_clamp(age / freshBars, 0.0, 1.0)
+            baseTransp = int(math.round(freshTransp + (staleTransp - freshTransp) * ageRatio))
+
+            prevFill = array.get(zoneFill, i)
+            fillNow = math.max(prevFill, f_fillPct(dir, top, bottom))
+            array.set(zoneFill, i, fillNow)
+
+            box.set_right(bx, bar_index + 1)
+            box.set_top(bx, top)
+            box.set_bottom(bx, bottom)
+
+            if fillNow >= 100.0
+                if prevFill < 100.0 and barstate.isconfirmed
+                    if dir == 1 and close < bottom
+                        breakerDown := true
+                        if showFilledLabel
+                            label.new(bar_index, bottom, "BRK DN", style = label.style_label_down,
+                                      color = color.new(colorBear, 0), textcolor = color.white, size = size.tiny)
+                    if dir == -1 and close > top
+                        breakerUp := true
+                        if showFilledLabel
+                            label.new(bar_index, top, "BRK UP", style = label.style_label_up,
+                                      color = color.new(colorBull, 0), textcolor = color.white, size = size.tiny)
+
+                if removeFilled
+                    box.delete(bx)
+                    array.set(zoneActive, i, false)
+                else
+                    box.set_bgcolor(bx, color.new(color.gray, 92))
+                    box.set_border_color(bx, color.new(color.gray, 78))
+            else
+                fillBoost = int(math.round(fillNow * 0.15))
+                finalTransp = int(f_clamp(baseTransp + fillBoost, 0, 97))
+                zoneColor = dir == 1 ? color.new(colorBull, finalTransp) : color.new(colorBear, finalTransp)
+                borderColor = dir == 1 ? color.new(colorBull, math.max(finalTransp - 38, 0)) : color.new(colorBear, math.max(finalTransp - 38, 0))
+                box.set_bgcolor(bx, zoneColor)
+                box.set_border_color(bx, borderColor)
+
+                touchTop = dir == 1 ? (low <= top and low[1] > top) : (high >= top and high[1] < top)
+                touchBottom = dir == 1 ? (low <= bottom and low[1] > bottom) : (high >= bottom and high[1] < bottom)
+
+                enteredTop := enteredTop or touchTop
+                enteredBottom := enteredBottom or touchBottom
+
+                srcWeight = src == "HTF" ? 1.2 : 1.0
+                score = f_urgency(fillNow, age, freshBars, srcWeight)
+
+                if score > topScore1
+                    topScore3 := topScore2
+                    topIdx3 := topIdx2
+                    topScore2 := topScore1
+                    topIdx2 := topIdx1
+                    topScore1 := score
+                    topIdx1 := i
+                else if score > topScore2
+                    topScore3 := topScore2
+                    topIdx3 := topIdx2
+                    topScore2 := score
+                    topIdx2 := i
+                else if score > topScore3
+                    topScore3 := score
+                    topIdx3 := i
+
+// Urgency table
+var table rank = table.new(position.top_right, 4, 4, border_width = 1)
+if barstate.islast
+    if showRankTable
+        table.cell(rank, 0, 0, "Rank", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 1, 0, "Side", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 2, 0, "Fill", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 3, 0, "Age",  bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+
+        idxA = topIdx1
+        idxB = topIdx2
+        idxC = topIdx3
+
+        sideA = idxA >= 0 ? (array.get(zoneDir, idxA) == 1 ? "Bull " + array.get(zoneSrc, idxA) : "Bear " + array.get(zoneSrc, idxA)) : "-"
+        fillA = idxA >= 0 ? str.tostring(array.get(zoneFill, idxA), "#.0") + "%" : "-"
+        ageA = idxA >= 0 ? str.tostring(bar_index - array.get(zoneBorn, idxA)) : "-"
+        colA = idxA >= 0 ? (array.get(zoneDir, idxA) == 1 ? color.new(colorBull, 72) : color.new(colorBear, 72)) : color.new(color.gray, 85)
+
+        sideB = idxB >= 0 ? (array.get(zoneDir, idxB) == 1 ? "Bull " + array.get(zoneSrc, idxB) : "Bear " + array.get(zoneSrc, idxB)) : "-"
+        fillB = idxB >= 0 ? str.tostring(array.get(zoneFill, idxB), "#.0") + "%" : "-"
+        ageB = idxB >= 0 ? str.tostring(bar_index - array.get(zoneBorn, idxB)) : "-"
+        colB = idxB >= 0 ? (array.get(zoneDir, idxB) == 1 ? color.new(colorBull, 76) : color.new(colorBear, 76)) : color.new(color.gray, 87)
+
+        sideC = idxC >= 0 ? (array.get(zoneDir, idxC) == 1 ? "Bull " + array.get(zoneSrc, idxC) : "Bear " + array.get(zoneSrc, idxC)) : "-"
+        fillC = idxC >= 0 ? str.tostring(array.get(zoneFill, idxC), "#.0") + "%" : "-"
+        ageC = idxC >= 0 ? str.tostring(bar_index - array.get(zoneBorn, idxC)) : "-"
+        colC = idxC >= 0 ? (array.get(zoneDir, idxC) == 1 ? color.new(colorBull, 80) : color.new(colorBear, 80)) : color.new(color.gray, 89)
+
+        table.cell(rank, 0, 1, "#1", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 1, 1, sideA, bgcolor = colA, text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 2, 1, fillA, bgcolor = colA, text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 3, 1, ageA, bgcolor = colA, text_color = color.white, text_size = size.tiny)
+
+        table.cell(rank, 0, 2, "#2", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 1, 2, sideB, bgcolor = colB, text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 2, 2, fillB, bgcolor = colB, text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 3, 2, ageB, bgcolor = colB, text_color = color.white, text_size = size.tiny)
+
+        table.cell(rank, 0, 3, "#3", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 1, 3, sideC, bgcolor = colC, text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 2, 3, fillC, bgcolor = colC, text_color = color.white, text_size = size.tiny)
+        table.cell(rank, 3, 3, ageC, bgcolor = colC, text_color = color.white, text_size = size.tiny)
+    else
+        for c = 0 to 3
+            for r = 0 to 3
+                table.cell(rank, c, r, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+newVoid = ltfBull or ltfBear or (useHTF and newHtfBar and (htfBullConfirmed or htfBearConfirmed))
+
+alertcondition(newVoid, title = "New Void/Imbalance", message = "Void Map: new imbalance on {{ticker}} ({{interval}})")
+alertcondition(enteredTop, title = "Void Top Entry", message = "Void Map: price entered zone top on {{ticker}} ({{interval}})")
+alertcondition(enteredBottom, title = "Void Deep Fill", message = "Void Map: price reached zone bottom on {{ticker}} ({{interval}})")
+alertcondition(breakerUp, title = "Bullish Breaker", message = "Void Map: bearish void failed upward (breaker up) on {{ticker}} ({{interval}})")
+alertcondition(breakerDown, title = "Bearish Breaker", message = "Void Map: bullish void failed downward (breaker down) on {{ticker}} ({{interval}})")
