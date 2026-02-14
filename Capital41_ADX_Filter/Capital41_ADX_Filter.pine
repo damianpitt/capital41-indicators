@@ -1,0 +1,33 @@
+
+// CAPITAL41 ADX TREND FILTER
+//
+// What it does:
+// - Shows trend strength using ADX.
+// - Optional background highlight when trend strength exceeds threshold.
+// - Helps avoid choppy conditions.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+//
+// Usage guide (30m/4h):
+// - Only take scalps when ADX is above threshold (default 20).
+// - Combine with Fusion Scalp or Confluence signals.
+
+
+
+//@version=6
+
+indicator("Capital41 ADX Filter", overlay = false)
+
+adxLen    = input.int(14, "ADX length", minval = 2)
+threshold = input.int(20, "Trend threshold", minval = 5, maxval = 50)
+showBg    = input.bool(true, "Highlight trending")
+
+adxVal = ta.adx(adxLen)
+
+plot(adxVal, title = "ADX", color = color.new(color.blue, 0), linewidth = 2)
+plot(threshold, title = "Threshold", color = color.new(color.gray, 60))
+
+bgcolor(showBg and adxVal >= threshold ? color.new(color.green, 90) : na)
