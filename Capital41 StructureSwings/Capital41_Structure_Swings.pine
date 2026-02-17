@@ -1,0 +1,69 @@
+// CAPITAL41 STRUCTURE SWINGS
+
+//
+// What it does:
+// - Marks swing highs/lows and optional break of structure (BOS).
+// - Helps visualize market structure for entries and targets.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+//
+// Usage guide (30m/4h):
+// - Swing points help identify support/resistance and structure shifts.
+// - BOS markers show when price breaks a recent swing level.
+
+
+
+//@version=6
+indicator("Capital41 Structure Swings", overlay = true, max_labels_count = 200, max_lines_count = 200)
+
+// Inputs
+pivotLen    = input.int(5, "Pivot length", minval = 2, maxval = 20)
+showSwings  = input.bool(true, "Show swing points")
+showBOS     = input.bool(true, "Show break of structure")
+
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+colorLine = color.new(color.gray, 70)
+
+// Swing points
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+
+if showSwings and not na(ph)
+    label.new(bar_index - pivotLen, ph, "SH", style = label.style_label_down,
+              color = color.new(colorBear, 0), textcolor = color.white, size = size.tiny)
+
+if showSwings and not na(pl)
+    label.new(bar_index - pivotLen, pl, "SL", style = label.style_label_up,
+              color = color.new(colorBull, 0), textcolor = color.white, size = size.tiny)
+
+// Track last swing levels
+var float lastHigh = na
+var float lastLow  = na
+
+if not na(ph)
+    lastHigh := ph
+if not na(pl)
+    lastLow := pl
+
+// Break of structure
+bosUp   = showBOS and not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
+bosDown = showBOS and not na(lastLow) and close < lastLow and close[1] >= lastLow
+
+plotshape(bosUp, title = "BOS Up", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.tiny, text = "BOS")
+
+plotshape(bosDown, title = "BOS Down", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.tiny, text = "BOS")
+
+// Optional level lines on most recent swing
+if showBOS
+    if not na(lastHigh)
+        line.new(bar_index - 1, lastHigh, bar_index, lastHigh,
+                 color = colorLine, style = line.style_dotted, extend = extend.right)
+    if not na(lastLow)
+        line.new(bar_index - 1, lastLow, bar_index, lastLow,
+                 color = colorLine, style = line.style_dotted, extend = extend.right)
