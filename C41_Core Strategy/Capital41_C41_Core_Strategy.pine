@@ -1,0 +1,128 @@
+// C41 CORE STRATEGY (MA + RSI + W%R)
+
+// What it does:
+// - Minimal strategy using only moving average trend, RSI, and Williams %R.
+// - Enters when all three conditions align in the same direction.
+// - Exits on MA failure or opposite setup.
+// - Designed as a simpler baseline next to Fusion strategies.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m on BTC or US stocks.
+// 4) Keep defaults first, then tune MA/RSI/W%R thresholds.
+//
+// Usage guide (30m):
+// - Long entry: close above MA + RSI long condition + W%R long condition.
+// - Short entry: close below MA + RSI short condition + W%R short condition.
+// - Exit when trend fails or opposite setup appears.
+
+
+
+//@version=6
+
+strategy("C41 Core Strategy", overlay = true, pyramiding = 0,
+         initial_capital = 10000, commission_type = strategy.commission.percent, commission_value = 0.01)
+
+// Inputs
+maType      = input.string("EMA", "MA type", options = ["EMA", "SMA"])
+maLen       = input.int(50, "MA length", minval = 5)
+showMA      = input.bool(true, "Show MA")
+
+rsiLen      = input.int(14, "RSI length", minval = 2)
+rsiOB       = input.int(65, "RSI overbought", minval = 50, maxval = 90)
+rsiOS       = input.int(35, "RSI oversold", minval = 10, maxval = 50)
+
+wrLen       = input.int(14, "Williams %R length", minval = 2)
+wrOB        = input.float(-20.0, "W%R overbought")
+wrOS        = input.float(-80.0, "W%R oversold")
+
+requireTurn = input.bool(true, "Require RSI/W%R turn")
+
+showSignals = input.bool(true, "Show entry markers")
+showBg      = input.bool(true, "Show setup background")
+showBadge   = input.bool(true, "Show status badge")
+
+colorBull    = color.new(color.lime, 0)
+colorBear    = color.new(color.red, 0)
+colorNeutral = color.new(color.gray, 80)
+
+// Williams %R helper
+wr_manual(_high, _low, _close, _len) =>
+    hh = ta.highest(_high, _len)
+    ll = ta.lowest(_low, _len)
+    rng = hh - ll
+    rng == 0 ? -50.0 : (hh - _close) / rng * -100
+
+// Core metrics
+ma = maType == "EMA" ? ta.ema(close, maLen) : ta.sma(close, maLen)
+trendLong = close > ma
+trendShort = close < ma
+plot(showMA ? ma : na, title = "MA", color = trendLong ? colorBull : trendShort ? colorBear : color.new(color.gray, 0), linewidth = 2)
+
+rsi = ta.rsi(close, rsiLen)
+rsiLongTurn = rsi[1] < rsiOS and rsi > rsi[1]
+rsiShortTurn = rsi[1] > rsiOB and rsi < rsi[1]
+rsiLong = requireTurn ? rsiLongTurn : rsi < rsiOS
+rsiShort = requireTurn ? rsiShortTurn : rsi > rsiOB
+
+wr = wr_manual(high, low, close, wrLen)
+wrLongTurn = wr[1] < wrOS and wr > wr[1]
+wrShortTurn = wr[1] > wrOB and wr < wr[1]
+wrLong = requireTurn ? wrLongTurn : wr < wrOS
+wrShort = requireTurn ? wrShortTurn : wr > wrOB
+
+
+// Entry and exit logic
+longSetup = trendLong and rsiLong and wrLong
+shortSetup = trendShort and rsiShort and wrShort
+
+longEntry = barstate.isconfirmed and longSetup and not longSetup[1]
+shortEntry = barstate.isconfirmed and shortSetup and not shortSetup[1]
+
+if longEntry
+    strategy.entry("Long", strategy.long)
+
+if shortEntry
+    strategy.entry("Short", strategy.short)
+
+longExit = strategy.position_size > 0 and (trendShort or shortSetup)
+shortExit = strategy.position_size < 0 and (trendLong or longSetup)
+
+if longExit
+    strategy.close("Long", comment = "C41 Exit")
+
+if shortExit
+    strategy.close("Short", comment = "C41 Exit")
+
+plotshape(showSignals and longEntry, title = "C41 Long Entry", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.small, text = "L")
+
+plotshape(showSignals and shortEntry, title = "C41 Short Entry", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.small, text = "S")
+
+bgcolor(showBg ? (longSetup ? color.new(colorBull, 90) : shortSetup ? color.new(colorBear, 90) : na) : na)
+
+
+// Status badge
+
+var table status = table.new(position.bottom_left, 4, 1, border_width = 1)
+if barstate.islast
+    if showBadge
+        maText = trendLong ? " MA+ " : trendShort ? " MA- " : " MA0 "
+        rsiText = rsiLong ? " RSI+ " : rsiShort ? " RSI- " : " RSI0 "
+        wrText = wrLong ? " WR+ " : wrShort ? " WR- " : " WR0 "
+        sigText = longSetup ? " SET L " : shortSetup ? " SET S " : " SET - "
+
+        table.cell(status, 0, 0, maText, bgcolor = trendLong ? color.new(colorBull, 70) : trendShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, rsiText, bgcolor = rsiLong ? color.new(colorBull, 70) : rsiShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, wrText, bgcolor = wrLong ? color.new(colorBull, 70) : wrShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 3, 0, sigText, bgcolor = longSetup ? color.new(colorBull, 60) : shortSetup ? color.new(colorBear, 60) : colorNeutral, text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 3
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+alertcondition(longEntry, title = "C41 Long", message = "C41 Strategy: long entry on {{ticker}} ({{interval}})")
+alertcondition(shortEntry, title = "C41 Short", message = "C41 Strategy: short entry on {{ticker}} ({{interval}})")
+alertcondition(longExit, title = "C41 Long Exit", message = "C41 Strategy: long exit on {{ticker}} ({{interval}})")
+alertcondition(shortExit, title = "C41 Short Exit", message = "C41 Strategy: short exit on {{ticker}} ({{interval}})")
