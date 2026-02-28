@@ -1,0 +1,211 @@
+// C41 KEY CALENDAR
+//
+// What it does:
+// - Marks recurring market-effect calendar dates (not one-off anniversaries).
+// - Covers month/quarter/year turn windows, monthly OPEX, quarterly OPEX,
+//   OPEX-week start, earnings kickoff, and Russell rebalance.
+// - Supports two custom fixed-date slots.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use any timeframe (intraday or higher).
+// 4) Toggle only the events you want visible.
+//
+// Usage guide:
+// - Month/quarter/year end tags are plotted on the actual prior trading bar.
+// - OPEX/earnings/rebalance markers are plotted on the current event day.
+// - Use custom slots for your own recurring yearly reminders.
+//
+// Included recurring dates explained:
+// - Month Open:
+//   First trading day of a new month. Often carries fresh allocation and
+//   positioning flow from discretionary and systematic books.
+// - Month End:
+//   Last trading day of the month. Commonly linked to NAV marking, window
+//   dressing, and rebalance pressure into the close.
+// - Quarter Open:
+//   First trading day of Jan/Apr/Jul/Oct. Tracks rotation at the start of a
+//   new reporting quarter when sector leadership can shift.
+// - Quarter End:
+//   Last trading day of Mar/Jun/Sep/Dec. High-probability rebalance window
+//   for pension/target-date and multi-asset portfolios.
+// - Year Open:
+//   First trading day of the year. Captures reset behavior after year-end tax
+//   positioning and holiday liquidity.
+// - Year End:
+//   Last trading day of the year. Tracks common performance-lock and
+//   rebalance effects into final prints.
+// - OPEX Week Start:
+//   Monday of the monthly options-expiration week (week containing 3rd Friday).
+//   Useful for spotting the start of dealer-gamma/hedging flow transitions.
+// - Monthly OPEX:
+//   Third Friday each month, the standard monthly equity/index options expiry.
+//   Frequently associated with pinning, gamma unwind, and closing-auction flow.
+// - Quarterly OPEX:
+//   Third Friday of Mar/Jun/Sep/Dec, when quarterly contracts expire.
+//   Usually larger notional than regular monthly expirations.
+// - Earnings Kickoff:
+//   Second Friday of Jan/Apr/Jul/Oct as an early-season proxy marker in the
+//   US earnings cycle where single-name dispersion typically increases.
+// - Russell Rebalance:
+//   Last Friday of June, tied to annual Russell index reconstitution.
+//   Known for concentrated close-auction volume and index-tracking turnover.
+// - Custom 1 / Custom 2:
+//   This id for User-defined fixed month/day reminders.
+
+
+
+//@version=6
+indicator("C41KeyCalendar", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// Display inputs
+showLines = input.bool(true, "Show event lines")
+showLabels = input.bool(true, "Show event labels")
+labelAnchor = input.string("Top", "Label anchor", options = ["Top", "Bottom"])
+lineStyleOpt = input.string("Dotted", "Line style", options = ["Dotted", "Dashed", "Solid"])
+lineWidth = input.int(1, "Line width", minval = 1, maxval = 4)
+linePadAtr = input.float(0.6, "Line padding (ATR)", minval = 0.1, maxval = 5.0)
+showSignalMarker = input.bool(true, "Show key-date marker")
+
+// Recurring market-effect events
+showMonthOpen = input.bool(true, "Show Month Open")
+showMonthEnd = input.bool(true, "Show Month End")
+showQuarterOpen = input.bool(true, "Show Quarter Open")
+showQuarterEnd = input.bool(true, "Show Quarter End")
+showYearOpen = input.bool(true, "Show Year Open")
+showYearEnd = input.bool(true, "Show Year End")
+showOpexWeekStart = input.bool(true, "Show OPEX Week Start (Mon)")
+showMonthlyOpex = input.bool(true, "Show Monthly OPEX (3rd Friday)")
+showQuarterlyOpex = input.bool(true, "Show Quarterly OPEX (Mar/Jun/Sep/Dec)")
+showEarningsKickoff = input.bool(true, "Show Earnings Kickoff (2nd Fri Jan/Apr/Jul/Oct)")
+showRussellRebalance = input.bool(true, "Show Russell Rebalance (Last Fri Jun)")
+useUsRthOnly = input.bool(true, "Use US RTH only (intraday)")
+
+// Custom fixed-date slots
+custom1On = input.bool(false, "Custom event 1")
+custom1Month = input.int(2, "Custom 1 month", minval = 1, maxval = 12)
+custom1Day = input.int(1, "Custom 1 day", minval = 1, maxval = 31)
+custom1Label = input.string("Custom 1", "Custom 1 label")
+
+custom2On = input.bool(false, "Custom event 2")
+custom2Month = input.int(8, "Custom 2 month", minval = 1, maxval = 12)
+custom2Day = input.int(1, "Custom 2 day", minval = 1, maxval = 31)
+custom2Label = input.string("Custom 2", "Custom 2 label")
+
+colorTurn = color.new(color.blue, 0)
+colorRebal = color.new(color.orange, 0)
+colorEarnings = color.new(color.teal, 0)
+colorDerivs = color.new(color.red, 0)
+colorCustom = color.new(color.purple, 0)
+
+f_lineStyle(_style) =>
+    _style == "Dashed" ? line.style_dashed : _style == "Solid" ? line.style_solid : line.style_dotted
+
+f_daysInMonth(_year, _month) =>
+    isLeap = (math.mod(_year, 4) == 0 and math.mod(_year, 100) != 0) or (math.mod(_year, 400) == 0)
+    _month == 2 ? (isLeap ? 29 : 28) : (_month == 4 or _month == 6 or _month == 9 or _month == 11 ? 30 : 31)
+
+inUsRth = timeframe.isintraday ? not na(time(timeframe.period, "0930-1600", "America/New_York")) : true
+newDayRaw = ta.change(time("D")) != 0
+newDay = newDayRaw and (not useUsRthOnly or inUsRth)
+monthFlip = newDay and not na(month[1]) and month != month[1]
+yearFlip = newDay and not na(year[1]) and year != year[1]
+
+isQuarterMonth(_m) =>
+    _m == 1 or _m == 4 or _m == 7 or _m == 10
+
+isQuarterEndMonth(_m) =>
+    _m == 3 or _m == 6 or _m == 9 or _m == 12
+
+isFixedHit(_enabled, _month, _day) =>
+    if not _enabled or not newDay or not barstate.isconfirmed
+        false
+    else
+        targetThisYear = timestamp(year, _month, _day, 0, 0)
+        targetPrevYear = timestamp(year - 1, _month, _day, 0, 0)
+        crossedThis = time >= targetThisYear and time[1] < targetThisYear
+        crossedPrev = time >= targetPrevYear and time[1] < targetPrevYear
+        crossedThis or crossedPrev
+
+atrPad = ta.atr(14) * linePadAtr
+lineTop = high + atrPad
+lineBot = low - atrPad
+lnStyle = f_lineStyle(lineStyleOpt)
+
+plotEventNow(_trigger, _title, _col) =>
+    if _trigger
+        if showLines
+            line.new(bar_index, lineBot, bar_index, lineTop,
+                     extend = extend.both, color = color.new(_col, 45), style = lnStyle, width = lineWidth)
+        if showLabels
+            y = labelAnchor == "Top" ? lineTop : lineBot
+            st = labelAnchor == "Top" ? label.style_label_down : label.style_label_up
+            label.new(bar_index, y, _title, style = st, color = _col, textcolor = color.white, size = size.tiny)
+
+plotEventPrev(_trigger, _title, _col) =>
+    if _trigger and bar_index > 0
+        prevTop = high[1] + atrPad[1]
+        prevBot = low[1] - atrPad[1]
+        if showLines
+            line.new(bar_index - 1, prevBot, bar_index - 1, prevTop,
+                     extend = extend.both, color = color.new(_col, 45), style = lnStyle, width = lineWidth)
+        if showLabels
+            y = labelAnchor == "Top" ? prevTop : prevBot
+            st = labelAnchor == "Top" ? label.style_label_down : label.style_label_up
+            label.new(bar_index - 1, y, _title, style = st, color = _col, textcolor = color.white, size = size.tiny)
+
+// Recurring turn events (now)
+evMonthOpen = showMonthOpen and monthFlip
+evQuarterOpen = showQuarterOpen and monthFlip and isQuarterMonth(month)
+evYearOpen = showYearOpen and yearFlip
+
+// Recurring turn events (previous bar)
+evMonthEndPrev = showMonthEnd and monthFlip
+evQuarterEndPrev = showQuarterEnd and monthFlip and isQuarterEndMonth(month[1])
+evYearEndPrev = showYearEnd and yearFlip
+
+// Recurring scheduled flow events
+isFriday = dayofweek == dayofweek.friday
+isMonday = dayofweek == dayofweek.monday
+isThirdFriday = isFriday and dayofmonth >= 15 and dayofmonth <= 21
+
+evOpexWeekStart = showOpexWeekStart and newDay and isMonday and dayofmonth >= 11 and dayofmonth <= 17 and barstate.isconfirmed
+evMonthlyOpex = showMonthlyOpex and newDay and isThirdFriday and barstate.isconfirmed
+evQuarterlyOpex = showQuarterlyOpex and newDay and isThirdFriday and isQuarterEndMonth(month) and barstate.isconfirmed
+
+evEarningsKickoff = showEarningsKickoff and newDay and isFriday and dayofmonth >= 8 and dayofmonth <= 14 and isQuarterMonth(month) and barstate.isconfirmed
+evRussellRebalance = showRussellRebalance and newDay and isFriday and month == 6 and (dayofmonth + 7 > f_daysInMonth(year, month)) and barstate.isconfirmed
+
+// Custom fixed-date events
+evCustom1 = isFixedHit(custom1On, custom1Month, custom1Day)
+evCustom2 = isFixedHit(custom2On, custom2Month, custom2Day)
+
+plotEventNow(evMonthOpen, "Month Open", colorTurn)
+plotEventNow(evQuarterOpen, "Quarter Open", colorTurn)
+plotEventNow(evYearOpen, "Year Open", colorTurn)
+
+plotEventPrev(evMonthEndPrev, "Month End", colorRebal)
+plotEventPrev(evQuarterEndPrev, "Quarter End", colorRebal)
+plotEventPrev(evYearEndPrev, "Year End", colorRebal)
+
+plotEventNow(evOpexWeekStart, "OPEX Week Start", colorDerivs)
+plotEventNow(evMonthlyOpex, "Monthly OPEX", colorDerivs)
+plotEventNow(evQuarterlyOpex, "Quarterly OPEX", colorDerivs)
+plotEventNow(evEarningsKickoff, "Earnings Kickoff", colorEarnings)
+plotEventNow(evRussellRebalance, "Russell Rebalance", colorRebal)
+
+plotEventNow(evCustom1, custom1Label, colorCustom)
+plotEventNow(evCustom2, custom2Label, colorCustom)
+
+keyDateNow = evMonthOpen or evQuarterOpen or evYearOpen or evOpexWeekStart or evMonthlyOpex or evQuarterlyOpex or evEarningsKickoff or evRussellRebalance or evCustom1 or evCustom2
+keyDatePrev = evMonthEndPrev or evQuarterEndPrev or evYearEndPrev
+
+plotshape(showSignalMarker and keyDateNow, title = "C41 Key Date",
+          style = shape.flag, location = location.top, color = color.new(color.yellow, 0), size = size.tiny, text = "KEY")
+
+plotshape(showSignalMarker and keyDatePrev, title = "C41 Key Date Prev",
+          style = shape.flag, location = location.top, offset = -1, color = color.new(color.yellow, 0), size = size.tiny, text = "KEY")
+
+alertcondition(keyDateNow or keyDatePrev, title = "C41 Key Calendar Date",
+               message = "C41KeyCalendar: recurring key date active on {{ticker}} ({{interval}})")
