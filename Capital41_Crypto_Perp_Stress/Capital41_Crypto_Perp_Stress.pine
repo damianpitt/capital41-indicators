@@ -1,0 +1,202 @@
+// CAPITAL41 CRYPTO PERP STRESS
+
+//
+// What it does:
+// - Detects crypto-specific stress using perp basis, OI impulse, and
+//   liquidation wick behavior.
+// - Flags long-squeeze risk, short-squeeze risk, cascade starts, and reset
+//   completion.
+// - Includes weekend sensitivity controls for 24/7 markets.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use intraday or 4h on liquid perp pairs.
+// 4) Set Spot/Perp/OI symbols for your exchange.
+//
+// Usage guide:
+// - Long-squeeze risk: crowded longs + OI build + downside liquidation wick.
+// - Short-squeeze risk: crowded shorts + OI build + upside liquidation wick.
+// - Cascade tags: stress + break of prior bar extreme.
+// - Reset complete: basis normalizes, OI flushes, and volatility compresses.
+
+
+
+//@version=6
+indicator("Capital41 Crypto Perp Stress", overlay = true, max_labels_count = 200)
+
+// Symbol inputs
+spotSymbol = input.symbol(syminfo.tickerid, "Spot symbol")
+perpSymbol = input.symbol(syminfo.tickerid, "Perp symbol")
+oiSymbol = input.string("", "OI symbol (optional)")
+useVolumeFallback = input.bool(true, "Use volume fallback when OI missing")
+
+// Core thresholds
+basisPosPct = input.float(0.25, "Positive basis threshold %", minval = 0.01, maxval = 5.0, step = 0.01)
+basisNegPct = input.float(-0.25, "Negative basis threshold %", minval = -5.0, maxval = -0.01, step = 0.01)
+basisNeutralPct = input.float(0.10, "Neutral basis absolute %", minval = 0.01, maxval = 3.0, step = 0.01)
+oiImpulsePct = input.float(1.00, "OI impulse threshold %", minval = 0.10, maxval = 20.0, step = 0.05)
+oiFlushPct = input.float(1.20, "OI flush threshold %", minval = 0.10, maxval = 20.0, step = 0.05)
+oiSmooth = input.int(3, "OI change smoothing", minval = 1, maxval = 30)
+
+// Wick and volatility
+atrLen = input.int(14, "ATR length", minval = 1)
+atrAvgLen = input.int(20, "ATR average length", minval = 5)
+wickAtrMult = input.float(0.8, "Wick ATR multiplier", minval = 0.1, maxval = 5.0)
+wickBodyRecovery = input.float(0.55, "Wick recovery ratio", minval = 0.10, maxval = 0.95)
+volLen = input.int(50, "Volume SMA length", minval = 5)
+volMult = input.float(1.2, "Volume spike multiplier", minval = 0.1, maxval = 5.0)
+compAtrMult = input.float(0.9, "Compression ATR multiplier", minval = 0.1, maxval = 2.0)
+
+// Weekend behavior
+useWeekendAdjust = input.bool(true, "Enable weekend sensitivity")
+weekendBasisFactor = input.float(0.85, "Weekend basis factor", minval = 0.5, maxval = 1.5)
+weekendOiFactor = input.float(0.85, "Weekend OI factor", minval = 0.5, maxval = 1.5)
+weekendWickFactor = input.float(0.90, "Weekend wick factor", minval = 0.5, maxval = 1.5)
+
+// Display
+showSignals = input.bool(true, "Show signal markers")
+showBg = input.bool(true, "Show stress background")
+showBadge = input.bool(true, "Show status badge")
+showEMA = input.bool(false, "Show trend EMA")
+emaLen = input.int(50, "Trend EMA length", minval = 5)
+
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+colorWarn = color.new(color.orange, 0)
+colorNeutral = color.new(color.gray, 80)
+
+f_clamp(_x, _lo, _hi) =>
+    math.max(_lo, math.min(_hi, _x))
+
+
+// Market data
+spotClose = request.security(spotSymbol, timeframe.period, close, lookahead = barmerge.lookahead_off)
+perpClose = request.security(perpSymbol, timeframe.period, close, lookahead = barmerge.lookahead_off)
+
+basisPct = spotClose > 0 ? (perpClose - spotClose) / spotClose * 100.0 : 0.0
+
+oiRaw = oiSymbol != "" ? request.security(oiSymbol, timeframe.period, close, lookahead = barmerge.lookahead_off) : na
+oiOk = not na(oiRaw)
+oiSeries = oiOk ? oiRaw : volume
+oiValid = oiOk or useVolumeFallback
+
+oiChgRaw = oiSeries[1] > 0 ? (oiSeries - oiSeries[1]) / oiSeries[1] * 100.0 : 0.0
+oiChg = ta.ema(oiChgRaw, oiSmooth)
+
+isWeekend = dayofweek == dayofweek.saturday or dayofweek == dayofweek.sunday
+basisAdj = useWeekendAdjust and isWeekend ? weekendBasisFactor : 1.0
+oiAdj = useWeekendAdjust and isWeekend ? weekendOiFactor : 1.0
+wickAdj = useWeekendAdjust and isWeekend ? weekendWickFactor : 1.0
+
+posBasisThr = basisPosPct * basisAdj
+negBasisThr = basisNegPct * basisAdj
+neutralBasisThr = basisNeutralPct * basisAdj
+oiImpulseThr = oiImpulsePct * oiAdj
+oiFlushThr = oiFlushPct * oiAdj
+wickMultAdj = wickAtrMult * wickAdj
+
+atr = ta.atr(atrLen)
+atrAvg = ta.sma(atr, atrAvgLen)
+ema = ta.ema(close, emaLen)
+trendUp = close > ema
+trendDn = close < ema
+plot(showEMA ? ema : na, title = "Trend EMA", color = trendUp ? colorBull : trendDn ? colorBear : color.new(color.gray, 0), linewidth = 2)
+
+volSma = ta.sma(volume, volLen)
+volSpike = volSma > 0 and volume > volSma * volMult
+
+barRange = high - low
+upWick = high - math.max(open, close)
+downWick = math.min(open, close) - low
+recoverUp = barRange > 0 and close <= high - barRange * wickBodyRecovery
+recoverDown = barRange > 0 and close >= low + barRange * wickBodyRecovery
+
+liqUp = upWick > atr * wickMultAdj and volSpike and recoverUp and barstate.isconfirmed
+liqDown = downWick > atr * wickMultAdj and volSpike and recoverDown and barstate.isconfirmed
+
+crowdedLong = basisPct >= posBasisThr
+crowdedShort = basisPct <= negBasisThr
+oiBuild = oiValid and oiChg >= oiImpulseThr
+oiFlush = oiValid and oiChg <= -oiFlushThr
+
+longSqueezeRisk = crowdedLong and oiBuild and liqDown
+shortSqueezeRisk = crowdedShort and oiBuild and liqUp
+
+cascadeDown = longSqueezeRisk and close < low[1]
+cascadeUp = shortSqueezeRisk and close > high[1]
+
+basisNeutral = math.abs(basisPct) <= neutralBasisThr
+volCompression = atrAvg > 0 and atr < atrAvg * compAtrMult
+resetComplete = basisNeutral and oiFlush and volCompression and barstate.isconfirmed
+
+crowdedTrendUp = trendUp and crowdedLong and oiBuild and not liqDown
+crowdedTrendDn = trendDn and crowdedShort and oiBuild and not liqUp
+
+
+// Stress meter (0-100)
+basisStress = f_clamp(math.abs(basisPct) / math.abs(posBasisThr) * 35.0, 0.0, 35.0)
+oiStress = f_clamp(math.max(oiChg, 0.0) / oiImpulseThr * 30.0, 0.0, 30.0)
+wickStress = (liqUp or liqDown) ? 25.0 : 0.0
+trendStress = (crowdedTrendUp or crowdedTrendDn) ? 10.0 : 0.0
+stress = f_clamp(basisStress + oiStress + wickStress + trendStress, 0.0, 100.0)
+
+// Visuals
+plotshape(showSignals and longSqueezeRisk, title = "Long Squeeze Risk", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.tiny, text = "LSQ")
+
+plotshape(showSignals and shortSqueezeRisk, title = "Short Squeeze Risk", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.tiny, text = "SSQ")
+
+plotshape(showSignals and cascadeDown, title = "Cascade Down", style = shape.xcross,
+          location = location.abovebar, color = color.new(colorBear, 0), size = size.tiny, text = "CD")
+
+plotshape(showSignals and cascadeUp, title = "Cascade Up", style = shape.xcross,
+          location = location.belowbar, color = color.new(colorBull, 0), size = size.tiny, text = "CU")
+
+plotshape(showSignals and resetComplete, title = "Reset Complete", style = shape.circle,
+          location = location.belowbar, color = color.new(colorWarn, 0), size = size.tiny, text = "R")
+
+bgcolor(showBg ? (longSqueezeRisk ? color.new(colorBear, 88) :
+       shortSqueezeRisk ? color.new(colorBull, 88) :
+       resetComplete ? color.new(colorWarn, 90) :
+       crowdedTrendUp ? color.new(colorBull, 94) :
+       crowdedTrendDn ? color.new(colorBear, 94) : na) : na)
+
+
+// Status badge
+var table status = table.new(position.top_right, 6, 1, border_width = 1)
+if barstate.islast
+    if showBadge
+        bText = " BAS " + str.tostring(basisPct, "#.###") + "% "
+        oiText = " OI " + str.tostring(oiChg, "#.##") + "% "
+        wkText = isWeekend ? " WKND " : " WKDY "
+        liqText = liqUp ? " LIQ U " : liqDown ? " LIQ D " : " LIQ 0 "
+        stText = " ST " + str.tostring(stress, "#.0") + " "
+        sigText = longSqueezeRisk ? " SQ D " : shortSqueezeRisk ? " SQ U " : resetComplete ? " RESET " : " - "
+
+        table.cell(status, 0, 0, bText, bgcolor = crowdedLong ? color.new(colorWarn, 65) : crowdedShort ? color.new(colorBear, 65) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, oiText, bgcolor = oiBuild ? color.new(colorWarn, 65) : oiFlush ? color.new(colorBull, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, wkText, bgcolor = isWeekend ? color.new(color.blue, 72) : color.new(color.gray, 75), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 3, 0, liqText, bgcolor = liqUp ? color.new(colorBull, 65) : liqDown ? color.new(colorBear, 65) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 4, 0, stText, bgcolor = stress >= 70 ? color.new(colorBear, 65) : stress >= 45 ? color.new(colorWarn, 65) : color.new(colorBull, 70), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 5, 0, sigText, bgcolor = longSqueezeRisk ? color.new(colorBear, 60) : shortSqueezeRisk ? color.new(colorBull, 60) : resetComplete ? color.new(colorWarn, 65) : colorNeutral, text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 5
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+// Alerts
+alertcondition(longSqueezeRisk, title = "Long Squeeze Risk",
+               message = "Crypto Perp Stress: long-squeeze risk on {{ticker}} ({{interval}})")
+
+alertcondition(shortSqueezeRisk, title = "Short Squeeze Risk",
+               message = "Crypto Perp Stress: short-squeeze risk on {{ticker}} ({{interval}})")
+
+alertcondition(cascadeDown, title = "Cascade Down Start",
+               message = "Crypto Perp Stress: downside cascade start on {{ticker}} ({{interval}})")
+
+alertcondition(cascadeUp, title = "Cascade Up Start",
+               message = "Crypto Perp Stress: upside cascade start on {{ticker}} ({{interval}})")
+
+alertcondition(resetComplete, title = "Reset Complete",
+               message = "Crypto Perp Stress: reset complete on {{ticker}} ({{interval}})")
