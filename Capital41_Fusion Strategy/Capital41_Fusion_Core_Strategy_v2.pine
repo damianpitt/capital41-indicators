@@ -1,0 +1,184 @@
+// CAPITAL41 FUSION CORE STRATEGY v2
+//
+// What it does:
+// - Converts Fusion Scalp + Fusion Oscillator into a simple execution strategy.
+// - Uses the same four core metrics: EMA trend, RSI state, W%R state,
+//   and ATR/Volume expansion.
+// - Enters on Fusion Oscillator threshold breaks with trend alignment.
+// - Exits on momentum fade (oscillator back through midline) or EMA failure.
+//
+// v2 changes:
+// - FIXED: Commission increased from 0.01% to 0.075% (realistic for crypto exchanges).
+// - FIXED: ATR TP/SL now locks ATR at entry time using a var variable, so stop
+//   and target levels remain consistent throughout the trade instead of shifting
+//   with each new bar's ATR value.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m on BTC or US stocks.
+// 4) Keep defaults first, then tune thresholds/risk inputs.
+//
+// Usage guide (30m):
+// - Long entry: trend is up and Fusion Oscillator crosses into strong bull zone.
+// - Short entry: trend is down and Fusion Oscillator crosses into strong bear zone.
+// - ATR TP/SL locks at entry for consistent risk model.
+
+
+
+//@version=6
+strategy("Capital41 Fusion Core Strategy v2", overlay = true, pyramiding = 0,
+         initial_capital = 10000, commission_type = strategy.commission.percent, commission_value = 0.075)
+
+// Inputs
+
+emaLen      = input.int(50, "EMA length", minval = 5)
+showEMA     = input.bool(true, "Show EMA")
+
+rsiLen      = input.int(14, "RSI length", minval = 2)
+rsiOB       = input.int(65, "RSI overbought", minval = 50, maxval = 90)
+rsiOS       = input.int(35, "RSI oversold", minval = 10, maxval = 50)
+
+wrLen       = input.int(14, "Williams %R length", minval = 2)
+wrOB        = input.float(-20.0, "W%R overbought")
+wrOS        = input.float(-80.0, "W%R oversold")
+
+requireTurn = input.bool(true, "Require RSI/W%R turn")
+
+atrLen      = input.int(14, "ATR length", minval = 1)
+atrAvgLen   = input.int(20, "ATR avg length", minval = 5)
+atrExpMult  = input.float(1.1, "ATR expansion multiplier", minval = 1.0, maxval = 3.0)
+
+volLen      = input.int(50, "Volume SMA length", minval = 5)
+volMult     = input.float(1.0, "Volume multiplier", minval = 0.5, maxval = 3.0)
+useExpFilter = input.bool(true, "Require expansion for entries")
+
+oscSmooth   = input.int(3, "Oscillator smoothing", minval = 1, maxval = 20)
+longTrig    = input.float(75.0, "Long trigger", minval = 50.0, maxval = 100.0)
+shortTrig   = input.float(25.0, "Short trigger", minval = 0.0, maxval = 50.0)
+exitMid     = input.float(50.0, "Exit midline", minval = 25.0, maxval = 75.0)
+
+useAtrRisk  = input.bool(true, "Use ATR TP/SL")
+atrStopMult = input.float(1.8, "ATR stop multiplier", minval = 0.2, maxval = 10.0)
+rrTarget    = input.float(1.5, "Risk-reward target", minval = 0.5, maxval = 10.0)
+
+showSignals = input.bool(true, "Show entry markers")
+showBg      = input.bool(true, "Show setup background")
+showBadge   = input.bool(true, "Show status badge")
+
+colorBull    = color.new(color.lime, 0)
+colorBear    = color.new(color.red, 0)
+colorNeutral = color.new(color.gray, 80)
+
+// === Core metrics (same as Fusion Scalp/Oscillator) ===
+wr_manual(_high, _low, _close, _len) =>
+    hh = ta.highest(_high, _len)
+    ll = ta.lowest(_low, _len)
+    rng = hh - ll
+    rng == 0 ? -50.0 : (hh - _close) / rng * -100
+
+ema = ta.ema(close, emaLen)
+trendLong = close > ema
+trendShort = close < ema
+plot(showEMA ? ema : na, title = "EMA", color = trendLong ? colorBull : trendShort ? colorBear : color.new(color.gray, 0), linewidth = 2)
+
+rsi = ta.rsi(close, rsiLen)
+rsiLongTurn = rsi[1] < rsiOS and rsi > rsi[1]
+rsiShortTurn = rsi[1] > rsiOB and rsi < rsi[1]
+rsiLong = requireTurn ? rsiLongTurn : rsi < rsiOS
+rsiShort = requireTurn ? rsiShortTurn : rsi > rsiOB
+
+wr = wr_manual(high, low, close, wrLen)
+wrLongTurn = wr[1] < wrOS and wr > wr[1]
+wrShortTurn = wr[1] > wrOB and wr < wr[1]
+wrLong = requireTurn ? wrLongTurn : wr < wrOS
+wrShort = requireTurn ? wrShortTurn : wr > wrOB
+
+atr = ta.atr(atrLen)
+atrAvg = ta.sma(atr, atrAvgLen)
+atrExp = atrAvg > 0 and atr > atrAvg * atrExpMult
+volSma = ta.sma(volume, volLen)
+volOk = volSma > 0 and volume > volSma * volMult
+expansionOK = atrExp and volOk
+
+// Fusion Oscillator scoring (same map as companion: 0-100)
+scoreLong = (trendLong ? 1 : 0) + (rsiLong ? 1 : 0) + (wrLong ? 1 : 0) + (expansionOK ? 1 : 0)
+scoreShort = (trendShort ? 1 : 0) + (rsiShort ? 1 : 0) + (wrShort ? 1 : 0) + (expansionOK ? 1 : 0)
+
+fusionRaw = scoreLong - scoreShort
+fusion = (fusionRaw + 4) * 12.5
+fusionSm = ta.sma(fusion, oscSmooth)
+
+entryFilter = useExpFilter ? expansionOK : true
+longSetup = trendLong and fusionSm >= longTrig and entryFilter
+shortSetup = trendShort and fusionSm <= shortTrig and entryFilter
+
+longEntry = barstate.isconfirmed and longSetup and not longSetup[1]
+shortEntry = barstate.isconfirmed and shortSetup and not shortSetup[1]
+
+// v2: Lock ATR at entry time so stop/target levels don't shift bar-to-bar
+var float entryAtr = na
+
+if longEntry
+    entryAtr := atr
+    strategy.entry("Long", strategy.long)
+
+if shortEntry
+    entryAtr := atr
+    strategy.entry("Short", strategy.short)
+
+longExit = strategy.position_size > 0 and (fusionSm < exitMid or close < ema)
+shortExit = strategy.position_size < 0 and (fusionSm > exitMid or close > ema)
+
+if longExit
+    strategy.close("Long", comment = "Core Exit")
+
+if shortExit
+    strategy.close("Short", comment = "Core Exit")
+
+// v2: ATR-based TP/SL with entry-locked ATR (no longer shifts every bar)
+if useAtrRisk and strategy.position_size != 0 and not na(entryAtr)
+    atrStop = entryAtr * atrStopMult
+    atrTP   = atrStop * rrTarget
+    if strategy.position_size > 0
+        strategy.exit("Long TP/SL", "Long",
+                      stop  = strategy.position_avg_price - atrStop,
+                      limit = strategy.position_avg_price + atrTP)
+    if strategy.position_size < 0
+        strategy.exit("Short TP/SL", "Short",
+                      stop  = strategy.position_avg_price + atrStop,
+                      limit = strategy.position_avg_price - atrTP)
+
+plotshape(showSignals and longEntry, title = "Core Long Entry", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.small, text = "L")
+
+plotshape(showSignals and shortEntry, title = "Core Short Entry", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.small, text = "S")
+
+bgcolor(showBg ? (longSetup ? color.new(colorBull, 90) : shortSetup ? color.new(colorBear, 90) : na) : na)
+
+// Status badge
+var table status = table.new(position.bottom_left, 6, 1, border_width = 1)
+if barstate.islast
+    if showBadge
+        trText = trendLong ? " EMA+ " : trendShort ? " EMA- " : " EMA0 "
+        rsiText = rsiLong ? " RSI+ " : rsiShort ? " RSI- " : " RSI0 "
+        wrText = wrLong ? " WR+ " : wrShort ? " WR- " : " WR0 "
+        exText = expansionOK ? " VOL+ " : " VOL0 "
+        oscText = " OSC " + str.tostring(fusionSm, "#.0") + " "
+        sigText = longSetup ? " SET L " : shortSetup ? " SET S " : " SET - "
+
+        table.cell(status, 0, 0, trText,  bgcolor = trendLong ? color.new(colorBull, 70) : trendShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, rsiText, bgcolor = rsiLong ? color.new(colorBull, 70) : rsiShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, wrText,  bgcolor = wrLong ? color.new(colorBull, 70) : wrShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 3, 0, exText,  bgcolor = expansionOK ? color.new(color.orange, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 4, 0, oscText, bgcolor = fusionSm >= 75 ? color.new(colorBull, 65) : fusionSm <= 25 ? color.new(colorBear, 65) : color.new(color.gray, 75), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 5, 0, sigText, bgcolor = longSetup ? color.new(colorBull, 60) : shortSetup ? color.new(colorBear, 60) : colorNeutral, text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 5
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+alertcondition(longEntry, title = "Fusion Core Long", message = "Fusion Core Strategy: long entry on {{ticker}} ({{interval}})")
+alertcondition(shortEntry, title = "Fusion Core Short", message = "Fusion Core Strategy: short entry on {{ticker}} ({{interval}})")
+alertcondition(longExit, title = "Fusion Core Long Exit", message = "Fusion Core Strategy: long exit on {{ticker}} ({{interval}})")
+alertcondition(shortExit, title = "Fusion Core Short Exit", message = "Fusion Core Strategy: short exit on {{ticker}} ({{interval}})")
