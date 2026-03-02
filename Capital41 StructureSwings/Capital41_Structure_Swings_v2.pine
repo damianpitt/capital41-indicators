@@ -1,0 +1,93 @@
+// CAPITAL41 STRUCTURE SWINGS v2
+//
+// What it does:
+// - Marks swing highs/lows and optional break of structure (BOS).
+// - Helps visualize market structure for entries and targets.
+//
+// v2 changes:
+// - FIXED: Level lines now only draw on new swing detection (was drawing every bar,
+//   rapidly hitting max_lines_count and causing older lines to vanish).
+// - FIXED: Added barstate.isconfirmed on BOS for non-repainting signals.
+// - ADDED: Persistent var line references (delete old, draw new on each swing).
+// - ADDED: Alert conditions for BOS up/down and new swing detection.
+// - ADDED: Separate toggle for level lines vs BOS markers.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+//
+// Usage guide (30m/4h):
+// - Swing points help identify support/resistance and structure shifts.
+// - BOS markers show when price breaks a recent swing level.
+// - Level lines persist at the most recent swing high/low until a new swing forms.
+
+
+
+//@version=6
+indicator("Capital41 Structure Swings v2", overlay = true, max_labels_count = 200, max_lines_count = 200)
+
+// Inputs
+pivotLen    = input.int(5, "Pivot length", minval = 2, maxval = 20)
+showSwings  = input.bool(true, "Show swing points")
+showBOS     = input.bool(true, "Show break of structure")
+showLevels  = input.bool(true, "Show level lines at swings")
+
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+
+// Swing detection
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+
+if showSwings and not na(ph)
+    label.new(bar_index - pivotLen, ph, "SH", style = label.style_label_down,
+              color = color.new(colorBear, 0), textcolor = color.white, size = size.tiny)
+
+if showSwings and not na(pl)
+    label.new(bar_index - pivotLen, pl, "SL", style = label.style_label_up,
+              color = color.new(colorBull, 0), textcolor = color.white, size = size.tiny)
+
+// Track last swing levels with persistent line references
+// v2 FIX: var lines are created once, then deleted/redrawn only when a new swing appears.
+var float lastHigh = na
+var float lastLow  = na
+var line  highLine = na
+var line  lowLine  = na
+
+if not na(ph)
+    lastHigh := ph
+    if showLevels
+        line.delete(highLine)
+        highLine := line.new(bar_index - pivotLen, ph, bar_index, ph,
+                     color = color.new(colorBear, 50), style = line.style_dotted, extend = extend.right)
+
+if not na(pl)
+    lastLow := pl
+    if showLevels
+        line.delete(lowLine)
+        lowLine := line.new(bar_index - pivotLen, pl, bar_index, pl,
+                     color = color.new(colorBull, 50), style = line.style_dotted, extend = extend.right)
+
+// Break of structure (v2: non-repainting with barstate.isconfirmed)
+bosUp   = showBOS and barstate.isconfirmed and not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
+bosDown = showBOS and barstate.isconfirmed and not na(lastLow) and close < lastLow and close[1] >= lastLow
+
+plotshape(bosUp, title = "BOS Up", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.tiny, text = "BOS")
+
+plotshape(bosDown, title = "BOS Down", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.tiny, text = "BOS")
+
+// v2: Alert conditions
+alertcondition(bosUp, title = "BOS Up",
+               message = "Structure Swings: bullish BOS on {{ticker}} ({{interval}})")
+
+alertcondition(bosDown, title = "BOS Down",
+               message = "Structure Swings: bearish BOS on {{ticker}} ({{interval}})")
+
+alertcondition(not na(ph), title = "New Swing High",
+               message = "Structure Swings: new Swing High on {{ticker}} ({{interval}})")
+
+alertcondition(not na(pl), title = "New Swing Low",
+               message = "Structure Swings: new Swing Low on {{ticker}} ({{interval}})")

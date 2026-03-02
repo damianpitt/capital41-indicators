@@ -1,0 +1,86 @@
+// CAPITAL41 WILLIAMS FLOW SIMPLE v2
+//
+// What it does:
+// - Uses higher timeframe Williams %R as a regime filter (bull, bear, chop).
+// - Triggers flow signals when current Williams %R exits oversold/overbought
+//   with a volume confirmation.
+// - Background shading shows the regime for quick context.
+//
+// v2 changes:
+// - FIXED: Williams %R line color changed from color.black (invisible on dark
+//   themes) to a user-configurable input color (default: teal).
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Set Higher timeframe to 240 for 30m charts, or 1D for 4h charts.
+//
+// Usage guide (30m/4h):
+// - Use Flow signals only in the direction of the HTF regime.
+// - Avoid signals in chop (gray background).
+// - Combine with sweeps or MA trend for higher quality entries.
+
+
+
+//@version=6
+indicator("Capital41 Williams Flow Simple v2", overlay = false, max_labels_count = 50)
+
+// Inputs tuned for 30m-4H
+len         = input.int(14, "Williams %R length", minval = 2)
+htf         = input.timeframe("240", "Higher timeframe")
+volLookback = input.int(50, "Volume SMA length", minval = 5)
+volMult     = input.float(0.7, "Volume filter multiplier", minval = 0.1, maxval = 2.0)
+showBg      = input.bool(true, "Show regime background")
+showSignals = input.bool(true, "Show flow signals")
+wrLineColor = input.color(color.teal, "Williams %R line color")  // v2: user-configurable color
+
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+colorChop = color.new(color.gray, 90)
+
+
+// Williams %R
+wr_manual(_high, _low, _close, _len) =>
+    hh = ta.highest(_high, _len)
+    ll = ta.lowest(_low, _len)
+    rng = hh - ll
+    rng == 0 ? -50.0 : (hh - _close) / rng * -100
+
+wrCurr = wr_manual(high, low, close, len)
+wrHTF  = request.security(syminfo.tickerid, htf, wr_manual(high, low, close, len), lookahead = barmerge.lookahead_off)
+
+// Regime
+regimeBull = wrHTF > -45
+regimeBear = wrHTF < -55
+regimeChop = not (regimeBull or regimeBear)
+
+// Volume filter
+volSma = ta.sma(volume, volLookback)
+volOK  = volume > volSma * volMult
+
+// Flow signals
+os = -80.0
+ob = -20.0
+
+flowLong  = showSignals and regimeBull and volOK and wrCurr > os and wrCurr[1] <= os and barstate.isconfirmed
+flowShort = showSignals and regimeBear and volOK and wrCurr < ob and wrCurr[1] >= ob and barstate.isconfirmed
+
+// Plots (v2: wrLineColor replaces color.black)
+plot(wrCurr, title = "Williams %R", color = wrLineColor, linewidth = 2)
+hline(os, "Oversold", color = color.new(colorBull, 50))
+hline(ob, "Overbought", color = color.new(colorBear, 50))
+
+bgcolor(showBg ? (regimeBull ? color.new(colorBull, 92) : regimeBear ? color.new(colorBear, 92) : colorChop) : na)
+
+plotshape(flowLong, title = "Flow Long", style = shape.triangleup,
+          location = location.bottom, color = colorBull, size = size.tiny, text = "L")
+
+plotshape(flowShort, title = "Flow Short", style = shape.triangledown,
+          location = location.top, color = colorBear, size = size.tiny, text = "S")
+
+alertcondition(flowLong, title = "Flow Long",
+               message = "Williams Flow: long signal on {{ticker}} ({{interval}})")
+
+alertcondition(flowShort, title = "Flow Short",
+               message = "Williams Flow: short signal on {{ticker}} ({{interval}})")

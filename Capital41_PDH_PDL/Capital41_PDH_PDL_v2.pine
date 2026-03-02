@@ -1,0 +1,179 @@
+// CAPITAL41 PREVIOUS DAY/WEEK/MONTH LEVELS v2
+//
+// What it does:
+// - Plots Previous Day High/Low (PDH/PDL) with midpoint.
+// - Optional Previous Week High/Low (PWH/PWL) with midpoint.
+// - Optional Previous Month High/Low (PMH/PML).
+// - Right-edge labels for quick identification.
+// - Alerts when price touches or breaks key levels.
+//
+// v2 changes (expanded from 43-line original):
+// - ADDED: Midpoint levels for daily and weekly ranges.
+// - ADDED: Previous month high/low.
+// - ADDED: Right-edge labels on all levels for easy identification.
+// - ADDED: Optional fill between high/low levels.
+// - ADDED: Alert conditions for touch and breakout of each level.
+// - ADDED: Status badge showing distance to PDH/PDL and position in range.
+// - ADDED: User-configurable colors for each timeframe.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+//
+// Usage guide (30m/4h):
+// - PDH/PDL act as natural liquidity targets and reversal zones.
+// - Midpoints often serve as intraday support/resistance.
+// - PWH/PWL and PMH/PML frame larger range context.
+// - Combine with sweeps and confluence signals for higher confidence.
+
+
+
+//@version=6
+indicator("Capital41 PDH/PDL Levels v2", overlay = true, max_labels_count = 50, max_lines_count = 50)
+
+// Inputs
+showPD     = input.bool(true, "Show previous day levels")
+showPDM    = input.bool(true, "Show previous day midpoint")
+showPW     = input.bool(false, "Show previous week levels")
+showPWM    = input.bool(false, "Show previous week midpoint")
+showPMo    = input.bool(false, "Show previous month levels")
+showFill   = input.bool(true, "Show level fills")
+showLabels = input.bool(true, "Show right-edge labels")
+showBadge  = input.bool(true, "Show status badge")
+touchTol   = input.float(0.1, "Touch tolerance (%)", minval = 0.01, maxval = 1.0, step = 0.01)
+
+colorPD    = input.color(color.blue, "Daily color")
+colorPW    = input.color(color.purple, "Weekly color")
+colorPMo   = input.color(color.orange, "Monthly color")
+
+// Previous Day levels
+pdh = request.security(syminfo.tickerid, "D", high[1])
+pdl = request.security(syminfo.tickerid, "D", low[1])
+pdm = math.avg(pdh, pdl)
+
+// Previous Week levels
+pwh = request.security(syminfo.tickerid, "W", high[1])
+pwl = request.security(syminfo.tickerid, "W", low[1])
+pwm = math.avg(pwh, pwl)
+
+// Previous Month levels
+pmh = request.security(syminfo.tickerid, "M", high[1])
+pml = request.security(syminfo.tickerid, "M", low[1])
+
+// Plots
+pdhPlot = plot(showPD ? pdh : na, title = "PDH", color = colorPD, linewidth = 1, style = plot.style_line)
+pdlPlot = plot(showPD ? pdl : na, title = "PDL", color = colorPD, linewidth = 1, style = plot.style_line)
+plot(showPD and showPDM ? pdm : na, title = "PD Mid", color = color.new(colorPD, 50), linewidth = 1, style = plot.style_circles)
+
+pwhPlot = plot(showPW ? pwh : na, title = "PWH", color = colorPW, linewidth = 1, style = plot.style_line)
+pwlPlot = plot(showPW ? pwl : na, title = "PWL", color = colorPW, linewidth = 1, style = plot.style_line)
+plot(showPW and showPWM ? pwm : na, title = "PW Mid", color = color.new(colorPW, 50), linewidth = 1, style = plot.style_circles)
+
+plot(showPMo ? pmh : na, title = "PMH", color = colorPMo, linewidth = 1, style = plot.style_line)
+plot(showPMo ? pml : na, title = "PML", color = colorPMo, linewidth = 1, style = plot.style_line)
+
+// Fills
+fill(pdhPlot, pdlPlot, color = showPD and showFill ? color.new(colorPD, 94) : na)
+fill(pwhPlot, pwlPlot, color = showPW and showFill ? color.new(colorPW, 94) : na)
+
+// Right-edge labels (using var to avoid accumulation)
+var label pdhLbl = na, var label pdlLbl = na, var label pdmLbl = na
+var label pwhLbl = na, var label pwlLbl = na, var label pwmLbl = na
+var label pmhLbl = na, var label pmlLbl = na
+
+if barstate.islast and showLabels
+    // Daily labels
+    if showPD
+        label.delete(pdhLbl)
+        label.delete(pdlLbl)
+        pdhLbl := label.new(bar_index + 3, pdh, "PDH", style = label.style_label_left,
+                  color = color.new(colorPD, 70), textcolor = color.white, size = size.tiny)
+        pdlLbl := label.new(bar_index + 3, pdl, "PDL", style = label.style_label_left,
+                  color = color.new(colorPD, 70), textcolor = color.white, size = size.tiny)
+        if showPDM
+            label.delete(pdmLbl)
+            pdmLbl := label.new(bar_index + 3, pdm, "PD\u00BD", style = label.style_label_left,
+                      color = color.new(colorPD, 80), textcolor = color.white, size = size.tiny)
+
+    // Weekly labels
+    if showPW
+        label.delete(pwhLbl)
+        label.delete(pwlLbl)
+        pwhLbl := label.new(bar_index + 3, pwh, "PWH", style = label.style_label_left,
+                  color = color.new(colorPW, 70), textcolor = color.white, size = size.tiny)
+        pwlLbl := label.new(bar_index + 3, pwl, "PWL", style = label.style_label_left,
+                  color = color.new(colorPW, 70), textcolor = color.white, size = size.tiny)
+        if showPWM
+            label.delete(pwmLbl)
+            pwmLbl := label.new(bar_index + 3, pwm, "PW\u00BD", style = label.style_label_left,
+                      color = color.new(colorPW, 80), textcolor = color.white, size = size.tiny)
+
+    // Monthly labels
+    if showPMo
+        label.delete(pmhLbl)
+        label.delete(pmlLbl)
+        pmhLbl := label.new(bar_index + 3, pmh, "PMH", style = label.style_label_left,
+                  color = color.new(colorPMo, 70), textcolor = color.white, size = size.tiny)
+        pmlLbl := label.new(bar_index + 3, pml, "PML", style = label.style_label_left,
+                  color = color.new(colorPMo, 70), textcolor = color.white, size = size.tiny)
+
+// Touch and breakout detection
+tol = close * touchTol / 100.0
+
+touchPDH = showPD and math.abs(close - pdh) <= tol
+touchPDL = showPD and math.abs(close - pdl) <= tol
+touchPWH = showPW and math.abs(close - pwh) <= tol
+touchPWL = showPW and math.abs(close - pwl) <= tol
+
+breakPDH = showPD and close > pdh and close[1] <= pdh
+breakPDL = showPD and close < pdl and close[1] >= pdl
+breakPWH = showPW and close > pwh and close[1] <= pwh
+breakPWL = showPW and close < pwl and close[1] >= pwl
+
+// Status badge
+var table status = table.new(position.top_right, 3, 1, border_width = 1)
+if barstate.islast
+    if showBadge and showPD
+        pdhDist = pdh != 0 ? (close - pdh) / pdh * 100 : 0
+        pdlDist = pdl != 0 ? (close - pdl) / pdl * 100 : 0
+
+        table.cell(status, 0, 0, " PDH " + str.tostring(pdhDist, "#.##") + "% ",
+                   bgcolor = pdhDist > 0 ? color.new(color.lime, 70) : color.new(color.red, 70),
+                   text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, " PDL " + str.tostring(pdlDist, "#.##") + "% ",
+                   bgcolor = pdlDist > 0 ? color.new(color.lime, 70) : color.new(color.red, 70),
+                   text_color = color.white, text_size = size.tiny)
+
+        pos   = close > pdh ? "ABOVE" : close < pdl ? "BELOW" : "IN RNG"
+        posBg = close > pdh ? color.new(color.lime, 65) : close < pdl ? color.new(color.red, 65) : color.new(color.gray, 75)
+        table.cell(status, 2, 0, " " + pos + " ", bgcolor = posBg,
+                   text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 2
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+// Alerts
+alertcondition(touchPDH, title = "Touch PDH",
+               message = "PDH/PDL: price touching Previous Day High on {{ticker}} ({{interval}})")
+
+alertcondition(touchPDL, title = "Touch PDL",
+               message = "PDH/PDL: price touching Previous Day Low on {{ticker}} ({{interval}})")
+
+alertcondition(breakPDH, title = "Break PDH",
+               message = "PDH/PDL: price broke above Previous Day High on {{ticker}} ({{interval}})")
+
+alertcondition(breakPDL, title = "Break PDL",
+               message = "PDH/PDL: price broke below Previous Day Low on {{ticker}} ({{interval}})")
+
+alertcondition(touchPWH, title = "Touch PWH",
+               message = "PDH/PDL: price touching Previous Week High on {{ticker}} ({{interval}})")
+
+alertcondition(touchPWL, title = "Touch PWL",
+               message = "PDH/PDL: price touching Previous Week Low on {{ticker}} ({{interval}})")
+
+alertcondition(breakPWH, title = "Break PWH",
+               message = "PDH/PDL: price broke above Previous Week High on {{ticker}} ({{interval}})")
+
+alertcondition(breakPWL, title = "Break PWL",
+               message = "PDH/PDL: price broke below Previous Week Low on {{ticker}} ({{interval}})")

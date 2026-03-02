@@ -1,0 +1,118 @@
+// CAPITAL41 ADX FILTER v2
+//
+// What it does:
+// - Shows ADX trend strength with DI+ and DI- directional indicators.
+// - Background highlight when trend strength exceeds threshold.
+// - DI crossover detection for trend direction changes.
+// - Status badge and comprehensive alerts.
+//
+// v2 changes (expanded from 34-line original):
+// - ADDED: DI+ and DI- lines with directional fill.
+// - ADDED: ADX color changes by trend direction (DI+ > DI- = bull, DI- > DI+ = bear).
+// - ADDED: Strong trend threshold zone.
+// - ADDED: Status badge showing ADX value, DI+/DI-, and direction.
+// - ADDED: Alert conditions (ADX threshold crosses, DI crossovers, strong trend).
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+//
+// Usage guide (30m/4h):
+// - Only take trades when ADX is above threshold (default 20).
+// - DI+ > DI- = bullish trend direction; DI- > DI+ = bearish.
+// - DI crossovers signal potential trend direction changes.
+// - Strong trend zone (35+) indicates powerful trending conditions.
+// - Combine with Fusion Scalp, Confluence, or Regime Matrix signals.
+
+
+
+//@version=6
+indicator("Capital41 ADX Filter v2", overlay = false, max_labels_count = 50)
+
+// Inputs
+adxLen       = input.int(14, "DI length", minval = 2)
+adxSmooth    = input.int(14, "ADX smoothing", minval = 1)
+threshold    = input.int(20, "Trend threshold", minval = 5, maxval = 50)
+strongThresh = input.int(35, "Strong trend threshold", minval = 20, maxval = 60)
+
+showDI       = input.bool(true, "Show DI+/DI- lines")
+showFill     = input.bool(true, "Show DI fill")
+showBg       = input.bool(true, "Highlight trending")
+showBadge    = input.bool(true, "Show status badge")
+
+colorBull    = color.new(color.lime, 0)
+colorBear    = color.new(color.red, 0)
+colorNeutral = color.new(color.gray, 80)
+
+// Compute DI+, DI-, and ADX via ta.dmi
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxSmooth)
+
+// Trend direction
+bullDir     = diPlus > diMinus
+bearDir     = diMinus > diPlus
+
+// Trend strength classification
+trending    = adxVal >= threshold
+strongTrend = adxVal >= strongThresh
+
+// ADX color based on direction and strength
+adxColor = not trending ? color.new(color.gray, 0) : bullDir ? colorBull : colorBear
+
+// Plots
+plot(adxVal, title = "ADX", color = adxColor, linewidth = 2)
+diPlusPlot  = plot(showDI ? diPlus : na,  title = "DI+", color = color.new(colorBull, 30), linewidth = 1)
+diMinusPlot = plot(showDI ? diMinus : na, title = "DI-", color = color.new(colorBear, 30), linewidth = 1)
+
+plot(threshold,    title = "Threshold", color = color.new(color.gray, 60), style = plot.style_line)
+plot(strongThresh, title = "Strong",    color = color.new(color.orange, 60), style = plot.style_line)
+
+// Fill between DI lines
+fill(diPlusPlot, diMinusPlot,
+     color = showFill and showDI ? (bullDir ? color.new(colorBull, 88) : color.new(colorBear, 88)) : na)
+
+// Background
+color bgColor = na
+if showBg and strongTrend
+    bgColor := bullDir ? color.new(colorBull, 85) : color.new(colorBear, 85)
+else if showBg and trending
+    bgColor := color.new(color.green, 92)
+bgcolor(bgColor)
+
+// DI crossovers
+diCrossUp   = ta.crossover(diPlus, diMinus)
+diCrossDown = ta.crossunder(diPlus, diMinus)
+
+// Status badge
+var table status = table.new(position.bottom_left, 4, 1, border_width = 1)
+if barstate.islast
+    if showBadge
+        adxText = " ADX " + str.tostring(adxVal, "#.0") + " "
+        diPText = " DI+ " + str.tostring(diPlus, "#.0") + " "
+        diMText = " DI- " + str.tostring(diMinus, "#.0") + " "
+        dirText = bullDir ? " BULL " : bearDir ? " BEAR " : " FLAT "
+
+        adxBg = strongTrend ? color.new(color.orange, 60) : trending ? color.new(color.green, 70) : colorNeutral
+        table.cell(status, 0, 0, adxText, bgcolor = adxBg, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, diPText, bgcolor = color.new(colorBull, 70), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, diMText, bgcolor = color.new(colorBear, 70), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 3, 0, dirText, bgcolor = bullDir ? color.new(colorBull, 65) : bearDir ? color.new(colorBear, 65) : colorNeutral, text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 3
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+// Alerts
+alertcondition(ta.crossover(adxVal, threshold), title = "ADX Above Threshold",
+               message = "ADX Filter: ADX crossed above threshold on {{ticker}} ({{interval}})")
+
+alertcondition(ta.crossunder(adxVal, threshold), title = "ADX Below Threshold",
+               message = "ADX Filter: ADX crossed below threshold on {{ticker}} ({{interval}})")
+
+alertcondition(diCrossUp, title = "DI+ Crossover",
+               message = "ADX Filter: DI+ crossed above DI- (bullish) on {{ticker}} ({{interval}})")
+
+alertcondition(diCrossDown, title = "DI- Crossover",
+               message = "ADX Filter: DI- crossed above DI+ (bearish) on {{ticker}} ({{interval}})")
+
+alertcondition(ta.crossover(adxVal, strongThresh), title = "Strong Trend",
+               message = "ADX Filter: ADX crossed into strong trend zone on {{ticker}} ({{interval}})")
