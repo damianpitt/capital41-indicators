@@ -1,0 +1,233 @@
+// CAPITAL41 DIVERGENCE DETECTOR (RSI + Williams %R)
+//
+// What it does:
+// - Detects regular and hidden divergences on RSI and Williams %R.
+// - Regular divergence: price makes a new extreme but the oscillator does not
+//   confirm it. Classic reversal signal.
+// - Hidden divergence: oscillator makes a new extreme but price does not confirm.
+//   Continuation signal within the existing trend.
+// - Uses pivot-based swing matching for reliable, non-repainting detection.
+//   Pivots require pivotLen bars of confirmation on each side before triggering.
+// - Draws divergence lines on price between the two swing points.
+// - Scores conviction: both RSI + W%R diverging together = highest confidence (DIV+).
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Adjust pivot length for sensitivity (smaller = more signals, more noise).
+//
+// Usage guide (30m/4h):
+// - Bullish regular DIV at swing lows: price making lower lows but oscillator
+//   making higher lows. Potential reversal up.
+// - Bearish regular DIV at swing highs: price making higher highs but oscillator
+//   making lower highs. Potential reversal down.
+// - Hidden divergences confirm continuation within existing trends.
+// - DIV+ label means both RSI and W%R diverge together (high conviction).
+// - Combine with Confluence Core, Fusion Scalp, or liquidity sweeps for entries.
+
+
+
+//@version=6
+indicator("Capital41 Divergence Detector", overlay = true, max_labels_count = 200, max_lines_count = 200)
+
+// Inputs
+pivotLen    = input.int(5, "Pivot length", minval = 2, maxval = 20)
+rsiLen      = input.int(14, "RSI length", minval = 2)
+wrLen       = input.int(14, "Williams %R length", minval = 2)
+maxBars     = input.int(100, "Max bars between pivots", minval = 10, maxval = 500)
+
+showRegular = input.bool(true, "Show regular divergences")
+showHidden  = input.bool(true, "Show hidden divergences")
+useRSI      = input.bool(true, "Use RSI for divergences")
+useWR       = input.bool(true, "Use Williams %R for divergences")
+showLines   = input.bool(true, "Draw divergence lines")
+showBadge   = input.bool(true, "Show status badge")
+
+colorBull   = color.new(color.lime, 0)
+colorBear   = color.new(color.red, 0)
+colorHBull  = color.new(color.teal, 0)
+colorHBear  = color.new(color.orange, 0)
+colorNeutral = color.new(color.gray, 80)
+
+
+// Oscillators
+rsi = ta.rsi(close, rsiLen)
+
+wr_manual(_high, _low, _close, _len) =>
+    hh = ta.highest(_high, _len)
+    ll = ta.lowest(_low, _len)
+    rng = hh - ll
+    rng == 0 ? -50.0 : (hh - _close) / rng * -100
+
+wr = wr_manual(high, low, close, wrLen)
+
+// Pivot detection (inherently non-repainting: confirmed pivotLen bars each side)
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+
+// Track last two swing highs with oscillator values at the pivot bar
+var float prevHigh = na,    var float lastHigh = na
+var float prevHighRSI = na, var float lastHighRSI = na
+var float prevHighWR = na,  var float lastHighWR = na
+var int   prevHighBar = na, var int   lastHighBar = na
+
+// Track last two swing lows with oscillator values at the pivot bar
+var float prevLow = na,     var float lastLow = na
+var float prevLowRSI = na,  var float lastLowRSI = na
+var float prevLowWR = na,   var float lastLowWR = na
+var int   prevLowBar = na,  var int   lastLowBar = na
+
+if not na(ph)
+    prevHigh    := lastHigh
+    prevHighRSI := lastHighRSI
+    prevHighWR  := lastHighWR
+    prevHighBar := lastHighBar
+    lastHigh    := ph
+    lastHighRSI := rsi[pivotLen]
+    lastHighWR  := wr[pivotLen]
+    lastHighBar := bar_index - pivotLen
+
+if not na(pl)
+    prevLow    := lastLow
+    prevLowRSI := lastLowRSI
+    prevLowWR  := lastLowWR
+    prevLowBar := lastLowBar
+    lastLow    := pl
+    lastLowRSI := rsi[pivotLen]
+    lastLowWR  := wr[pivotLen]
+    lastLowBar := bar_index - pivotLen
+
+
+// Spacing check: pivots must be within maxBars of each other
+
+highOk = not na(prevHighBar) and not na(lastHighBar) and (lastHighBar - prevHighBar) <= maxBars and (lastHighBar - prevHighBar) > 0
+lowOk  = not na(prevLowBar) and not na(lastLowBar) and (lastLowBar - prevLowBar) <= maxBars and (lastLowBar - prevLowBar) > 0
+
+
+// Regular divergences
+// Bearish regular: price Higher High, oscillator Lower High (reversal down)
+
+bearRegRSI = showRegular and useRSI and not na(ph) and highOk and lastHigh > prevHigh and lastHighRSI < prevHighRSI
+bearRegWR  = showRegular and useWR  and not na(ph) and highOk and lastHigh > prevHigh and lastHighWR < prevHighWR
+
+
+// Bullish regular: price Lower Low, oscillator Higher Low (reversal up)
+bullRegRSI = showRegular and useRSI and not na(pl) and lowOk and lastLow < prevLow and lastLowRSI > prevLowRSI
+bullRegWR  = showRegular and useWR  and not na(pl) and lowOk and lastLow < prevLow and lastLowWR > prevLowWR
+
+
+// Hidden divergences
+// Bearish hidden: price Lower High, oscillator Higher High (continuation down)
+
+bearHidRSI = showHidden and useRSI and not na(ph) and highOk and lastHigh < prevHigh and lastHighRSI > prevHighRSI
+bearHidWR  = showHidden and useWR  and not na(ph) and highOk and lastHigh < prevHigh and lastHighWR > prevHighWR
+
+// Bullish hidden: price Higher Low, oscillator Lower Low (continuation up)
+bullHidRSI = showHidden and useRSI and not na(pl) and lowOk and lastLow > prevLow and lastLowRSI < prevLowRSI
+bullHidWR  = showHidden and useWR  and not na(pl) and lowOk and lastLow > prevLow and lastLowWR < prevLowWR
+
+
+// Combined signals
+bullReg = bullRegRSI or bullRegWR
+bearReg = bearRegRSI or bearRegWR
+bullHid = bullHidRSI or bullHidWR
+bearHid = bearHidRSI or bearHidWR
+
+
+// Double divergence (both oscillators agree = high conviction)
+bullDouble = bullRegRSI and bullRegWR
+bearDouble = bearRegRSI and bearRegWR
+
+// Draw divergence lines on price
+
+if showLines and bullReg
+    line.new(prevLowBar, prevLow, lastLowBar, lastLow,
+             color = colorBull, width = 2, style = line.style_solid)
+
+if showLines and bearReg
+    line.new(prevHighBar, prevHigh, lastHighBar, lastHigh,
+             color = colorBear, width = 2, style = line.style_solid)
+
+if showLines and bullHid and not bullReg
+    line.new(prevLowBar, prevLow, lastLowBar, lastLow,
+             color = colorHBull, width = 2, style = line.style_dashed)
+
+if showLines and bearHid and not bearReg
+    line.new(prevHighBar, prevHigh, lastHighBar, lastHigh,
+             color = colorHBear, width = 2, style = line.style_dashed)
+
+// Signal markers
+// Double divergence (high conviction): larger marker with DIV+
+plotshape(bullDouble, title = "Bull Double DIV", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.small, text = "DIV+")
+
+plotshape(bearDouble, title = "Bear Double DIV", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.small, text = "DIV+")
+
+// Single regular divergence (one oscillator only)
+plotshape(bullReg and not bullDouble, title = "Bull Regular DIV", style = shape.triangleup,
+          location = location.belowbar, color = colorBull, size = size.tiny, text = "DIV")
+
+plotshape(bearReg and not bearDouble, title = "Bear Regular DIV", style = shape.triangledown,
+          location = location.abovebar, color = colorBear, size = size.tiny, text = "DIV")
+
+// Hidden divergences (only when no regular div on same bar)
+plotshape(bullHid and not bullReg, title = "Bull Hidden DIV", style = shape.triangleup,
+          location = location.belowbar, color = colorHBull, size = size.tiny, text = "hDIV")
+
+plotshape(bearHid and not bearReg, title = "Bear Hidden DIV", style = shape.triangledown,
+          location = location.abovebar, color = colorHBear, size = size.tiny, text = "hDIV")
+
+
+// Status badge
+var string lastDivDir  = "---"
+var string lastDivType = "---"
+var string lastDivOsc  = "---"
+
+if bullDouble
+    lastDivDir := "BULL", lastDivType := "REG", lastDivOsc := "RSI+WR"
+else if bearDouble
+    lastDivDir := "BEAR", lastDivType := "REG", lastDivOsc := "RSI+WR"
+else if bullReg
+    lastDivDir := "BULL", lastDivType := "REG", lastDivOsc := bullRegRSI ? "RSI" : "WR"
+else if bearReg
+    lastDivDir := "BEAR", lastDivType := "REG", lastDivOsc := bearRegRSI ? "RSI" : "WR"
+else if bullHid
+    lastDivDir := "BULL", lastDivType := "HID", lastDivOsc := bullHidRSI ? "RSI" : "WR"
+else if bearHid
+    lastDivDir := "BEAR", lastDivType := "HID", lastDivOsc := bearHidRSI ? "RSI" : "WR"
+
+var table status = table.new(position.bottom_left, 3, 1, border_width = 1)
+if barstate.islast
+    if showBadge
+        dirBg = lastDivDir == "BULL" ? color.new(colorBull, 70) : lastDivDir == "BEAR" ? color.new(colorBear, 70) : colorNeutral
+        typeBg = lastDivType == "REG" ? color.new(color.blue, 70) : lastDivType == "HID" ? color.new(color.purple, 70) : colorNeutral
+        oscBg = lastDivOsc == "RSI+WR" ? color.new(color.orange, 65) : colorNeutral
+
+        table.cell(status, 0, 0, " " + lastDivDir + " ",  bgcolor = dirBg,  text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, " " + lastDivType + " ", bgcolor = typeBg, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, " " + lastDivOsc + " ",  bgcolor = oscBg,  text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 2
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+
+// Alerts
+alertcondition(bullDouble, title = "Bull Double Divergence",
+               message = "Divergence: bullish RSI + W%R double divergence on {{ticker}} ({{interval}})")
+
+alertcondition(bearDouble, title = "Bear Double Divergence",
+               message = "Divergence: bearish RSI + W%R double divergence on {{ticker}} ({{interval}})")
+
+alertcondition(bullReg, title = "Bull Regular Divergence",
+               message = "Divergence: bullish regular divergence on {{ticker}} ({{interval}})")
+
+alertcondition(bearReg, title = "Bear Regular Divergence",
+               message = "Divergence: bearish regular divergence on {{ticker}} ({{interval}})")
+
+alertcondition(bullHid and not bullReg, title = "Bull Hidden Divergence",
+               message = "Divergence: bullish hidden divergence on {{ticker}} ({{interval}})")
+
+alertcondition(bearHid and not bearReg, title = "Bear Hidden Divergence",
+               message = "Divergence: bearish hidden divergence on {{ticker}} ({{interval}})")
