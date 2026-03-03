@@ -1,0 +1,256 @@
+// CAPITAL41 ORDER BLOCK DETECTOR
+//
+// What it does:
+// - Detects bullish and bearish order blocks (OBs) based on impulse candles.
+// - Bullish OB: the last bearish candle before a strong bullish impulse move.
+//   Marks an institutional demand zone where buyers stepped in.
+// - Bearish OB: the last bullish candle before a strong bearish impulse move.
+//   Marks an institutional supply zone where sellers stepped in.
+// - Tracks mitigation: when price returns to the OB zone it is considered tested.
+// - Draws color-coded boxes that fade with age and turn gray on mitigation.
+// - Completes the ICT/SMC toolkit alongside Liquidity Sweep, Liquidity Void Map,
+//   and Structure Swings.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Adjust impulse multiplier for sensitivity (lower = more OBs, more noise).
+//
+// Usage guide (30m/4h):
+// - Bullish OBs (green boxes) act as demand / support zones on pullbacks.
+// - Bearish OBs (red boxes) act as supply / resistance zones on rallies.
+// - Fresh (unmitigated) OBs are higher probability than stale/mitigated ones.
+// - OBs that align with BOS levels from Structure Swings are highest quality.
+// - Combine with Liquidity Sweep for stop-hunt confirmation at OB zones.
+// - Combine with Liquidity Void Map to find OBs that sit inside FVGs.
+
+
+
+//@version=6
+indicator("Capital41 Order Block Detector", overlay = true,
+         max_boxes_count = 300, max_labels_count = 200)
+
+
+// Inputs
+atrLen         = input.int(14, "ATR length", minval = 1)
+impulseMult    = input.float(1.5, "Impulse ATR multiplier", minval = 0.5, maxval = 5.0, step = 0.1)
+obLookback     = input.int(10, "OB scan lookback (bars)", minval = 1, maxval = 30)
+maxActive      = input.int(25, "Max active order blocks", minval = 5, maxval = 100)
+freshnessLen   = input.int(80, "Freshness bars", minval = 10, maxval = 500)
+minMitAge      = input.int(2, "Min bars before mitigation", minval = 1, maxval = 20)
+
+useBody        = input.bool(false, "Use candle body only (vs full range)")
+removeMitigated = input.bool(false, "Remove mitigated OBs")
+showLabels     = input.bool(true, "Show OB labels")
+showBadge      = input.bool(true, "Show status badge")
+
+colorBull      = color.new(color.lime, 0)
+colorBear      = color.new(color.red, 0)
+colorMitigated = color.new(color.gray, 0)
+colorNeutral   = color.new(color.gray, 80)
+
+
+// ATR for impulse detection
+atr = ta.atr(atrLen)
+
+// Impulse detection (non-repainting)
+bullImpulse = barstate.isconfirmed and close > open and (close - open) > atr * impulseMult
+bearImpulse = barstate.isconfirmed and close < open and (open - close) > atr * impulseMult
+
+// OB zone management via parallel arrays
+var array<box>   obBox  = array.new<box>()
+var array<float>  obTop  = array.new<float>()
+var array<float>  obBot  = array.new<float>()
+var array<int>    obDir  = array.new<int>()                      // 1 = bull, -1 = bear
+var array<int>    obBorn = array.new<int>()
+var array<bool>   obMit  = array.new<bool>()
+
+
+// Helper: check if a new OB zone overlaps with an existing active OB of same direction
+f_hasNearby(_top, _bot, _dir) =>
+    found = false
+    if array.size(obTop) > 0
+        for i = 0 to array.size(obTop) - 1
+            if array.get(obDir, i) == _dir
+                eTop = array.get(obTop, i)
+                eBot = array.get(obBot, i)
+                if _top >= eBot and _bot <= eTop
+                    found := true
+                    break
+    found
+
+// Update existing OBs (run BEFORE creating new ones)
+
+if array.size(obBox) > 0
+    for i = array.size(obBox) - 1 to 0
+        bx   = array.get(obBox, i)
+        oTop = array.get(obTop, i)
+        oBot = array.get(obBot, i)
+        oDir = array.get(obDir, i)
+        oBorn = array.get(obBorn, i)
+        oMit = array.get(obMit, i)
+        age  = bar_index - oBorn
+
+
+        // Check mitigation (price returns to the OB zone)
+        if not oMit and age >= minMitAge
+            if oDir == 1 and low <= oTop
+                array.set(obMit, i, true)
+                oMit := true
+            if oDir == -1 and high >= oBot
+                array.set(obMit, i, true)
+                oMit := true
+
+
+        // Remove mitigated if configured
+        if oMit and removeMitigated
+            box.delete(bx)
+            array.remove(obBox, i)
+            array.remove(obTop, i)
+            array.remove(obBot, i)
+            array.remove(obDir, i)
+            array.remove(obBorn, i)
+            array.remove(obMit, i)
+            continue
+
+
+        // Remove very old OBs (3x freshness length)
+        if age > freshnessLen * 3
+            box.delete(bx)
+            array.remove(obBox, i)
+            array.remove(obTop, i)
+            array.remove(obBot, i)
+            array.remove(obDir, i)
+            array.remove(obBorn, i)
+            array.remove(obMit, i)
+            continue
+
+
+        // Extend box right edge
+        box.set_right(bx, bar_index)
+
+
+        // Age-fade transparency: fresh = 75, stale = 92, mitigated = 92
+        freshPct = math.max(0.0, 1.0 - float(age) / float(freshnessLen))
+        trans    = oMit ? 92 : int(75.0 + (1.0 - freshPct) * 17.0)
+        bgCol    = oMit ? color.new(colorMitigated, trans) : oDir == 1 ? color.new(colorBull, trans) : color.new(colorBear, trans)
+        bdCol    = oMit ? color.new(colorMitigated, 50) : oDir == 1 ? colorBull : colorBear
+        box.set_bgcolor(bx, bgCol)
+        box.set_border_color(bx, bdCol)
+
+// Detect new order blocks
+
+if bullImpulse
+    for i = 1 to obLookback
+        if close[i] < open[i]  // last bearish candle = bullish OB
+            obT = useBody ? open[i] : high[i]
+            obB = useBody ? close[i] : low[i]
+            if not f_hasNearby(obT, obB, 1)
+                bx = box.new(bar_index - i, obT, bar_index, obB,
+                     bgcolor = color.new(colorBull, 75), border_color = colorBull, border_width = 1)
+                array.push(obBox, bx)
+                array.push(obTop, obT)
+                array.push(obBot, obB)
+                array.push(obDir, 1)
+                array.push(obBorn, bar_index)
+                array.push(obMit, false)
+                if showLabels
+                    label.new(bar_index - i, obB, "OB",
+                              style = label.style_label_up, color = color.new(colorBull, 60),
+                              textcolor = color.white, size = size.tiny)
+            break
+
+if bearImpulse
+    for i = 1 to obLookback
+        if close[i] > open[i]  // last bullish candle = bearish OB
+            obT = useBody ? close[i] : high[i]
+            obB = useBody ? open[i] : low[i]
+            if not f_hasNearby(obT, obB, -1)
+                bx = box.new(bar_index - i, obT, bar_index, obB,
+                     bgcolor = color.new(colorBear, 75), border_color = colorBear, border_width = 1)
+                array.push(obBox, bx)
+                array.push(obTop, obT)
+                array.push(obBot, obB)
+                array.push(obDir, -1)
+                array.push(obBorn, bar_index)
+                array.push(obMit, false)
+                if showLabels
+                    label.new(bar_index - i, obT, "OB",
+                              style = label.style_label_down, color = color.new(colorBear, 60),
+                              textcolor = color.white, size = size.tiny)
+            break
+
+
+// Enforce max active: remove oldest when over limit
+while array.size(obBox) > maxActive
+    box.delete(array.shift(obBox))
+    array.shift(obTop)
+    array.shift(obBot)
+    array.shift(obDir)
+    array.shift(obBorn)
+    array.shift(obMit)
+
+// === Counts for badge ===
+bullActive = 0, bearActive = 0, bullMit = 0, bearMit = 0
+if array.size(obDir) > 0
+    for i = 0 to array.size(obDir) - 1
+        d = array.get(obDir, i)
+        m = array.get(obMit, i)
+        if d == 1
+            if m
+                bullMit += 1
+            else
+                bullActive += 1
+        else
+            if m
+                bearMit += 1
+            else
+                bearActive += 1
+				
+
+// Status badge
+var table status = table.new(position.bottom_left, 4, 1, border_width = 1)
+if barstate.islast
+    if showBadge
+        bText = " B " + str.tostring(bullActive) + " "
+        sText = " S " + str.tostring(bearActive) + " "
+        mText = " MIT " + str.tostring(bullMit + bearMit) + " "
+        tText = " TOT " + str.tostring(array.size(obBox)) + " "
+
+        table.cell(status, 0, 0, bText, bgcolor = bullActive > 0 ? color.new(colorBull, 65) : colorNeutral,
+                   text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, sText, bgcolor = bearActive > 0 ? color.new(colorBear, 65) : colorNeutral,
+                   text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, mText, bgcolor = (bullMit + bearMit) > 0 ? color.new(colorMitigated, 70) : colorNeutral,
+                   text_color = color.white, text_size = size.tiny)
+        table.cell(status, 3, 0, tText, bgcolor = color.new(color.gray, 75),
+                   text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 3
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+
+// Alerts
+alertcondition(bullImpulse, title = "Bullish OB Created",
+               message = "Order Block: new bullish OB (demand zone) on {{ticker}} ({{interval}})")
+
+alertcondition(bearImpulse, title = "Bearish OB Created",
+               message = "Order Block: new bearish OB (supply zone) on {{ticker}} ({{interval}})")
+
+
+// Mitigation alerts: fire when any OB was just mitigated this bar
+bullMitNow = false, bearMitNow = false
+if array.size(obMit) > 0
+    for i = 0 to array.size(obMit) - 1
+        if array.get(obMit, i) and (bar_index - array.get(obBorn, i)) == minMitAge
+            if array.get(obDir, i) == 1
+                bullMitNow := true
+            else
+                bearMitNow := true
+
+alertcondition(bullMitNow, title = "Bullish OB Mitigated",
+               message = "Order Block: bullish OB (demand) mitigated on {{ticker}} ({{interval}})")
+
+alertcondition(bearMitNow, title = "Bearish OB Mitigated",
+               message = "Order Block: bearish OB (supply) mitigated on {{ticker}} ({{interval}})")
