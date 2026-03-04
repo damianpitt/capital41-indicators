@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 PREVIOUS DAY/WEEK/MONTH LEVELS v2
-//
+
 // What it does:
 // - Plots Previous Day High/Low (PDH/PDL) with midpoint.
 // - Optional Previous Week High/Low (PWH/PWL) with midpoint.
@@ -118,6 +119,7 @@ if barstate.islast and showLabels
         pmlLbl := label.new(bar_index + 3, pml, "PML", style = label.style_label_left,
                   color = color.new(colorPMo, 70), textcolor = color.white, size = size.tiny)
 
+
 // Touch and breakout detection
 tol = close * touchTol / 100.0
 
@@ -152,6 +154,7 @@ if barstate.islast
     else
         for i = 0 to 2
             table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
 
 // Alerts
 alertcondition(touchPDH, title = "Touch PDH",

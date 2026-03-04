@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 FUSION CORE STRATEGY v2
-//
+
 // What it does:
 // - Converts Fusion Scalp + Fusion Oscillator into a simple execution strategy.
 // - Uses the same four core metrics: EMA trend, RSI state, W%R state,

@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 WILLIAMS FLOW SIMPLE v2
-//
+
 // What it does:
 // - Uses higher timeframe Williams %R as a regime filter (bull, bear, chop).
 // - Triggers flow signals when current Williams %R exits oversold/overbought
@@ -50,14 +51,17 @@ wr_manual(_high, _low, _close, _len) =>
 wrCurr = wr_manual(high, low, close, len)
 wrHTF  = request.security(syminfo.tickerid, htf, wr_manual(high, low, close, len), lookahead = barmerge.lookahead_off)
 
+
 // Regime
 regimeBull = wrHTF > -45
 regimeBear = wrHTF < -55
 regimeChop = not (regimeBull or regimeBear)
 
+
 // Volume filter
 volSma = ta.sma(volume, volLookback)
 volOK  = volume > volSma * volMult
+
 
 // Flow signals
 os = -80.0
@@ -65,6 +69,7 @@ ob = -20.0
 
 flowLong  = showSignals and regimeBull and volOK and wrCurr > os and wrCurr[1] <= os and barstate.isconfirmed
 flowShort = showSignals and regimeBear and volOK and wrCurr < ob and wrCurr[1] >= ob and barstate.isconfirmed
+
 
 // Plots (v2: wrLineColor replaces color.black)
 plot(wrCurr, title = "Williams %R", color = wrLineColor, linewidth = 2)

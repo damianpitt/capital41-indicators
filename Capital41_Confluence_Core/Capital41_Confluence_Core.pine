@@ -1,4 +1,4 @@
-
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 CONFLUENCE CORE
 
 // What it does:
@@ -12,7 +12,6 @@
 // 2) Paste this script, Save, and Add to chart.
 // 3) Use 30m or 4h on BTC or US stocks.
 // 4) Adjust Signal strictness to control frequency.
-
 
 // Usage guide (30m/4h):
 // - Standard mode is balanced. Use Strict for fewer signals, Loose for more.

@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 LIQUIDITY VOID + IMBALANCE MAP
-//
+
 // What it does:
 // - Detects bullish/bearish fair value gaps (imbalances) on LTF and optional HTF.
 // - Merges overlapping zones of the same side to reduce chart clutter.
@@ -17,6 +18,8 @@
 // - Top-entry alerts catch first contact; bottom-entry alerts catch deep fills.
 // - Breaker tags mark when a void fills and price pushes through the far side.
 // - Use with Confluence/Fusion entries so zones become location filters.
+
+
 
 //@version=6
 indicator("Capital41 Liquidity Void + Imbalance Map", overlay = true, max_boxes_count = 300, max_labels_count = 200)
@@ -128,6 +131,7 @@ if ltfBull
 if ltfBear
     f_addZone(low[2], high, -1, "LTF")
 
+
 // HTF FVG detection, confirmed on HTF close
 htfTime = request.security(syminfo.tickerid, htf, time, lookahead = barmerge.lookahead_off)
 newHtfBar = ta.change(htfTime) != 0
@@ -149,6 +153,7 @@ if useHTF and newHtfBar
         f_addZone(htfBullTop[1], htfBullBottom[1], 1, "HTF")
     if htfBearConfirmed
         f_addZone(htfBearTop[1], htfBearBottom[1], -1, "HTF")
+
 
 // Zone maintenance, fill tracking, urgency ranking
 enteredTop = false

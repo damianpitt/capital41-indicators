@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 ADX FILTER v2
-//
+
 // What it does:
 // - Shows ADX trend strength with DI+ and DI- directional indicators.
 // - Background highlight when trend strength exceeds threshold.

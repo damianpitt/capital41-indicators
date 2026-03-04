@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // C41 KEY CALENDAR
-//
+
 // What it does:
 // - Marks recurring market-effect calendar dates (not one-off anniversaries).
 // - Covers month/quarter/year turn windows, monthly OPEX, quarterly OPEX,

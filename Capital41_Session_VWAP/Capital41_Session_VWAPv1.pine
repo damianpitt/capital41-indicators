@@ -1,6 +1,6 @@
-
+// Copyright (c) 2025 Capital41 | MIT License
 // CAPITAL41 SESSION VWAP
-//
+
 // What it does:
 // - Calculates an intraday VWAP that resets each session.
 // - Optional standard deviation band around VWAP for context.
@@ -36,9 +36,11 @@ showOnlySession = input.bool(true, "Plot only during session")
 colorVwap = color.new(color.blue, 0)
 colorBand = color.new(color.blue, 70)
 
+
 // Session detection
 inSession = useExchangeTz ? not na(time(timeframe.period, sessTimes)) : not na(time(timeframe.period, sessTimes, sessTz))
 newSession = inSession and not inSession[1]
+
 
 // Session VWAP (manual)
 var float cumPV = 0.0

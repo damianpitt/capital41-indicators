@@ -1,6 +1,6 @@
-
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 REGIME MATRIX
-//
+
 // What it does:
 // - Classifies each bar into one of four states: Trend, Expansion,
 //   Compression, or Mean Reversion.
@@ -80,6 +80,7 @@ adxSlope = adxVal - adxVal[adxSlopeLen]
 ret = close[1] > 0 ? math.log(close / close[1]) : 0.0
 rv = ta.stdev(ret, rvLen) * 100.0
 rvSlope = rv - rv[rvSlopeLen]
+
 
 // Regime classification
 trendState = hurstVal >= trendHurst and adxVal >= adxTrendMin and adxSlope > 0

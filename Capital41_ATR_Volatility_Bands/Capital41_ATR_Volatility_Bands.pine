@@ -1,6 +1,6 @@
-
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 ATR VOLATILITY BANDS
-//
+
 // What it does:
 // - Draws ATR-based bands around a moving average to visualize volatility range.
 // - Optional recent-range box highlights the last N bars' high/low range.

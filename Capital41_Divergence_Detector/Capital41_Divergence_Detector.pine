@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 DIVERGENCE DETECTOR (RSI + Williams %R)
-//
+
 // What it does:
 // - Detects regular and hidden divergences on RSI and Williams %R.
 // - Regular divergence: price makes a new extreme but the oscillator does not

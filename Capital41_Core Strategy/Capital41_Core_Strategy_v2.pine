@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // C41 CORE STRATEGY v2 (MA + RSI + W%R)
-//
+
 // What it does:
 // - Minimal strategy using only moving average trend, RSI, and Williams %R.
 // - Enters when all three conditions align in the same direction.

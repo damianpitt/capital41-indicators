@@ -1,6 +1,6 @@
+// Copyright (c) 2026 Capital41 | MIT License
 // CAPITAL41 CRYPTO PERP STRESS
 
-//
 // What it does:
 // - Detects crypto-specific stress using perp basis, OI impulse, and
 //   liquidation wick behavior.
