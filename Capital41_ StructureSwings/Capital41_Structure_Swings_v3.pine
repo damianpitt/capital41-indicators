@@ -26,7 +26,7 @@
 
 
 //@version=6
-indicator("Capital41 Structure Swings v2", overlay = true, max_labels_count = 200, max_lines_count = 200)
+indicator("Capital41 Structure Swings v3", overlay = true, max_labels_count = 200, max_lines_count = 200)
 
 // Inputs
 pivotLen    = input.int(5, "Pivot length", minval = 2, maxval = 20)
@@ -71,13 +71,13 @@ if not na(pl)
                      color = color.new(colorBull, 50), style = line.style_dotted, extend = extend.right)
 
 // Break of structure (v2: non-repainting with barstate.isconfirmed)
-bosUp   = showBOS and barstate.isconfirmed and not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
-bosDown = showBOS and barstate.isconfirmed and not na(lastLow) and close < lastLow and close[1] >= lastLow
+bosUp   = barstate.isconfirmed and not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
+bosDown = barstate.isconfirmed and not na(lastLow) and close < lastLow and close[1] >= lastLow
 
-plotshape(bosUp, title = "BOS Up", style = shape.triangleup,
+plotshape(showBOS and bosUp, title = "BOS Up", style = shape.triangleup,
           location = location.belowbar, color = colorBull, size = size.tiny, text = "BOS")
 
-plotshape(bosDown, title = "BOS Down", style = shape.triangledown,
+plotshape(showBOS and bosDown, title = "BOS Down", style = shape.triangledown,
           location = location.abovebar, color = colorBear, size = size.tiny, text = "BOS")
 
 // v2: Alert conditions
