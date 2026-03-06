@@ -24,7 +24,7 @@
 
 
 //@version=6
-indicator("Capital41 Regime Matrix", overlay = true, max_labels_count = 100)
+indicator("Capital41 Regime Matrix v2", overlay = true, max_labels_count = 100)
 
 // Inputs
 baseEmaLen        = input.int(50, "Base EMA length", minval = 5)
@@ -86,7 +86,7 @@ rvSlope = rv - rv[rvSlopeLen]
 trendState = hurstVal >= trendHurst and adxVal >= adxTrendMin and adxSlope > 0
 expState = rvSlope > rvSlopeThreshold and adxSlope > 0 and not trendState
 compState = rvSlope < -rvSlopeThreshold and adxVal <= adxCompressionMax
-mrState = hurstVal <= meanRevHurst and adxVal < adxTrendMin and not compState
+mrState = not trendState and not expState and not compState
 
 regime = trendState ? 1 : expState ? 2 : compState ? 3 : mrState ? 4 : 4
 regimeText = regime == 1 ? "TREND" : regime == 2 ? "EXP" : regime == 3 ? "COMP" : "MR"

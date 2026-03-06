@@ -102,24 +102,24 @@ Every script is fully standalone: paste into Pine Editor, save, and add to chart
 
 ## Design Principles
 
-- **Non-repainting** — signals use `barstate.isconfirmed` and confirmed pivots.
+- **PineScript v6** — all scripts use the latest version as of 2026.
+- **Non-repainting** - signals use `barstate.isconfirmed` and confirmed pivots.
 - **Standalone** — every script works independently with no imports or dependencies.
 - **Consistent conventions** — lime/red color scheme, "L"/"S" signal labels, status badges, and alert conditions across the suite.
-- **PineScript v6** — all scripts use the latest version as of 2026.
 
 ## Suite Workflow
 
 ```
-Divergence Detector  >  trend exhaustion signal
-Order Block          >  institutional entry zone
-Liquidity Sweep      >  stop-hunt confirms the zone
-Liquidity Void Map   >  imbalance target for the move
-Structure Swings     >  BOS confirms structure shift
-Regime Matrix        >  adapts risk to market state
+Divergence Detector  :   trend exhaustion signal
+Order Block          :   institutional entry zone
+Liquidity Sweep      :   stop-hunt confirms the zone
+Liquidity Void Map   :   imbalance target for the move
+Structure Swings     :   BOS confirms structure shift
+Regime Matrix        :   adapts risk to market state
 ```
 
 ## License
 
-[MIT](LICENSE) — free to use, modify, and distribute with attribution.
+[MIT](LICENSE) - free to use, modify, and distribute with attribution.
 
 Copyright (c) 2026 Capital41
