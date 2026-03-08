@@ -29,7 +29,7 @@
 
 
 //@version=6
-indicator("Capital41 Order Block Detector", overlay = true,
+indicator("Capital41 Order Block Detector v2", overlay = true,
          max_boxes_count = 300, max_labels_count = 200)
 
 
@@ -82,6 +82,8 @@ f_hasNearby(_top, _bot, _dir) =>
     found
 
 // Update existing OBs (run BEFORE creating new ones)
+bullMitNow = false
+bearMitNow = false
 
 if array.size(obBox) > 0
     for i = array.size(obBox) - 1 to 0
@@ -99,9 +101,11 @@ if array.size(obBox) > 0
             if oDir == 1 and low <= oTop
                 array.set(obMit, i, true)
                 oMit := true
+                bullMitNow := true
             if oDir == -1 and high >= oBot
                 array.set(obMit, i, true)
                 oMit := true
+                bearMitNow := true
 
 
         // Remove mitigated if configured
@@ -141,6 +145,8 @@ if array.size(obBox) > 0
         box.set_border_color(bx, bdCol)
 
 // Detect new order blocks
+bullOBCreated = false
+bearOBCreated = false
 
 if bullImpulse
     for i = 1 to obLookback
@@ -156,6 +162,7 @@ if bullImpulse
                 array.push(obDir, 1)
                 array.push(obBorn, bar_index)
                 array.push(obMit, false)
+                bullOBCreated := true
                 if showLabels
                     label.new(bar_index - i, obB, "OB",
                               style = label.style_label_up, color = color.new(colorBull, 60),
@@ -176,6 +183,7 @@ if bearImpulse
                 array.push(obDir, -1)
                 array.push(obBorn, bar_index)
                 array.push(obMit, false)
+                bearOBCreated := true
                 if showLabels
                     label.new(bar_index - i, obT, "OB",
                               style = label.style_label_down, color = color.new(colorBear, 60),
@@ -211,7 +219,7 @@ if array.size(obDir) > 0
 				
 
 // Status badge
-var table status = table.new(position.bottom_left, 4, 1, border_width = 1)
+var table status = table.new(position.bottom_center, 4, 1, border_width = 1)
 if barstate.islast
     if showBadge
         bText = " B " + str.tostring(bullActive) + " "
@@ -233,23 +241,13 @@ if barstate.islast
 
 
 // Alerts
-alertcondition(bullImpulse, title = "Bullish OB Created",
+alertcondition(bullOBCreated, title = "Bullish OB Created",
                message = "Order Block: new bullish OB (demand zone) on {{ticker}} ({{interval}})")
 
-alertcondition(bearImpulse, title = "Bearish OB Created",
+alertcondition(bearOBCreated, title = "Bearish OB Created",
                message = "Order Block: new bearish OB (supply zone) on {{ticker}} ({{interval}})")
 
-
 // Mitigation alerts: fire when any OB was just mitigated this bar
-bullMitNow = false, bearMitNow = false
-if array.size(obMit) > 0
-    for i = 0 to array.size(obMit) - 1
-        if array.get(obMit, i) and (bar_index - array.get(obBorn, i)) == minMitAge
-            if array.get(obDir, i) == 1
-                bullMitNow := true
-            else
-                bearMitNow := true
-
 alertcondition(bullMitNow, title = "Bullish OB Mitigated",
                message = "Order Block: bullish OB (demand) mitigated on {{ticker}} ({{interval}})")
 
