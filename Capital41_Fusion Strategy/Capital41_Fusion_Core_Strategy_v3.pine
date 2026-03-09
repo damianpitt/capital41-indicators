@@ -28,7 +28,7 @@
 
 
 //@version=6
-strategy("Capital41 Fusion Core Strategy v2", overlay = true, pyramiding = 0,
+strategy("Capital41 Fusion Core Strategy v3", overlay = true, pyramiding = 0,
          initial_capital = 10000, commission_type = strategy.commission.percent, commission_value = 0.075)
 
 // Inputs
@@ -103,8 +103,10 @@ volOk = volSma > 0 and volume > volSma * volMult
 expansionOK = atrExp and volOk
 
 // Fusion Oscillator scoring (same map as companion: 0-100)
-scoreLong = (trendLong ? 1 : 0) + (rsiLong ? 1 : 0) + (wrLong ? 1 : 0) + (expansionOK ? 1 : 0)
-scoreShort = (trendShort ? 1 : 0) + (rsiShort ? 1 : 0) + (wrShort ? 1 : 0) + (expansionOK ? 1 : 0)
+expLong = expansionOK and trendLong ? 1 : 0
+expShort = expansionOK and trendShort ? 1 : 0
+scoreLong = (trendLong ? 1 : 0) + (rsiLong ? 1 : 0) + (wrLong ? 1 : 0) + expLong
+scoreShort = (trendShort ? 1 : 0) + (rsiShort ? 1 : 0) + (wrShort ? 1 : 0) + expShort
 
 fusionRaw = scoreLong - scoreShort
 fusion = (fusionRaw + 4) * 12.5

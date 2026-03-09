@@ -20,7 +20,7 @@
 
 
 //@version=6
-indicator("Capital41 Fusion Oscillator", overlay = false)
+indicator("Capital41 Fusion Oscillator v2", overlay = false)
 
 
 // Inputs (sync with Fusion Scalp)
@@ -91,8 +91,10 @@ expansionOK = atrExp and volOk
 
 
 // Fusion Oscillator (0–100)
-scoreLong  = (trendLong ? 1 : 0) + (rsiLong ? 1 : 0) + (wrLong ? 1 : 0) + (expansionOK ? 1 : 0)
-scoreShort = (trendShort ? 1 : 0) + (rsiShort ? 1 : 0) + (wrShort ? 1 : 0) + (expansionOK ? 1 : 0)
+expLong    = expansionOK and trendLong  ? 1 : 0
+expShort   = expansionOK and trendShort ? 1 : 0
+scoreLong  = (trendLong ? 1 : 0) + (rsiLong ? 1 : 0) + (wrLong ? 1 : 0) + expLong
+scoreShort = (trendShort ? 1 : 0) + (rsiShort ? 1 : 0) + (wrShort ? 1 : 0) + expShort
 
 fusionRaw = scoreLong - scoreShort
 fusion    = (fusionRaw + 4) * 12.5

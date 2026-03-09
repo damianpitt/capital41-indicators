@@ -34,7 +34,7 @@
 
 
 //@version=6
-indicator("Capital41 Fusion Scalp v2", overlay = true, max_labels_count = 50)
+indicator("Capital41 Fusion Scalp v3", overlay = true, max_labels_count = 50)
 
 
 // Inputs
@@ -146,7 +146,7 @@ barcolor(showBarColor ? (trendLong ? color.new(colorBull, 60) : trendShort ? col
 
 
 // Status badge (single row)
-var table status = table.new(position.bottom_left, 5, 1, border_width = badgeBorder)
+var table status = table.new(position.top_left, 5, 1, border_width = badgeBorder)
 badgeTextSize = badgeSize == "Huge" ? size.huge : badgeSize == "Large" ? size.large : badgeSize == "Normal" ? size.normal : size.small
 
 if barstate.islast
