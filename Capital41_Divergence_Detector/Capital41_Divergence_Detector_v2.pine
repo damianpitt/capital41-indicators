@@ -30,7 +30,7 @@
 
 
 //@version=6
-indicator("Capital41 Divergence Detector", overlay = true, max_labels_count = 200, max_lines_count = 200)
+indicator("Capital41 Divergence Detector v2", overlay = true, max_labels_count = 200, max_lines_count = 200)
 
 // Inputs
 pivotLen    = input.int(5, "Pivot length", minval = 2, maxval = 20)
@@ -199,7 +199,7 @@ else if bullHid
 else if bearHid
     lastDivDir := "BEAR", lastDivType := "HID", lastDivOsc := bearHidRSI ? "RSI" : "WR"
 
-var table status = table.new(position.bottom_left, 3, 1, border_width = 1)
+var table status = table.new(position.bottom_right, 3, 1, border_width = 1)
 if barstate.islast
     if showBadge
         dirBg = lastDivDir == "BULL" ? color.new(colorBull, 70) : lastDivDir == "BEAR" ? color.new(colorBear, 70) : colorNeutral
