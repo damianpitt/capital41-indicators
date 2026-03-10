@@ -6,6 +6,7 @@
 //   Capital41 Fusion Scalp (EMA trend, RSI, W%R, ATR/Volume expansion).
 // - Designed as a separate panel (like RSI) for quick confluence reading.
 
+//
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
 // 2) Paste this script, Save, and Add to chart.
@@ -49,14 +50,12 @@ showBg      = input.bool(true, "Background highlight")
 colorBull = color.new(color.lime, 0)
 colorBear = color.new(color.red, 0)
 
-
-// Trend filter
+// === Trend filter ===
 ema = ta.ema(close, emaLen)
 trendLong  = close > ema
 trendShort = close < ema
 
-
-// RSI
+// === RSI ===
 rsi = ta.rsi(close, rsiLen)
 
 rsiLongTurn  = rsi[1] < rsiOS and rsi > rsi[1]
@@ -65,8 +64,7 @@ rsiShortTurn = rsi[1] > rsiOB and rsi < rsi[1]
 rsiLong  = requireTurn ? rsiLongTurn  : rsi < rsiOS
 rsiShort = requireTurn ? rsiShortTurn : rsi > rsiOB
 
-
-// Williams %R
+// === Williams %R ===
 wr_manual(_high, _low, _close, _len) =>
     hh = ta.highest(_high, _len)
     ll = ta.lowest(_low, _len)
@@ -81,8 +79,7 @@ wrShortTurn = wr[1] > wrOB and wr < wr[1]
 wrLong  = requireTurn ? wrLongTurn  : wr < wrOS
 wrShort = requireTurn ? wrShortTurn : wr > wrOB
 
-
-// ATR + Volume expansion
+// === ATR + Volume expansion ===
 atr = ta.atr(atrLen)
 atrAvg = ta.sma(atr, atrAvgLen)
 atrExp = atrAvg > 0 and atr > atrAvg * atrExpMult
@@ -91,7 +88,6 @@ volSma = ta.sma(volume, volLen)
 volOk  = volSma > 0 and volume > volSma * volMult
 
 expansionOK = atrExp and volOk
-
 
 
 // Fusion Oscillator (0–100)
