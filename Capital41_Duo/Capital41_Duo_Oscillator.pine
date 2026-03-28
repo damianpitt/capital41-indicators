@@ -1,0 +1,116 @@
+// Copyright (c) 2026 Capital41 | MIT License
+// CAPITAL41 DUO OSCILLATOR (Companion)
+//
+// What it does:
+// - Fuses RSI (0-100) and Williams %R (-100 to 0, normalized to 0-100) into a
+//   single 0-100 oscillator for visual confluence reading.
+// - Low values = both oversold (buy zone), high values = both overbought (sell zone).
+// - Zone lines calculated from the RSI and W%R thresholds.
+// - Background matches the main Duo indicator coloring.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart (separate pane).
+// 3) Keep inputs synced with Capital41 Duo.
+//
+// Usage guide:
+// - Oscillator below the lower zone = both oversold, potential buy.
+// - Oscillator above the upper zone = both overbought, potential sell.
+// - Midline (50) = neutral. Use crossings for timing.
+
+
+
+//@version=6
+indicator("Capital41 Duo Oscillator", overlay = false)
+
+// Inputs (sync with Capital41 Duo)
+rsiLen     = input.int(14, "RSI length", minval = 2)
+wrLen      = input.int(14, "Williams %R length", minval = 2)
+rsiOS      = input.float(25.0, "RSI oversold level", minval = 1.0, maxval = 50.0, step = 1.0)
+rsiOB      = input.float(78.0, "RSI overbought level", minval = 50.0, maxval = 99.0, step = 1.0)
+wrOS       = input.float(-92.0, "W%R oversold level", minval = -100.0, maxval = -50.0, step = 1.0)
+wrOB       = input.float(-8.0, "W%R overbought level", minval = -50.0, maxval = 0.0, step = 1.0)
+requireTurn = input.bool(true, "Require turn confirmation")
+oscSmooth  = input.int(3, "Oscillator smoothing", minval = 1, maxval = 20)
+showZones  = input.bool(true, "Show zone lines")
+showBg     = input.bool(true, "Show background")
+showRSI    = input.bool(true, "Show RSI line")
+showWR     = input.bool(true, "Show W%R line (normalized)")
+
+colorBull    = color.new(color.green, 0)
+colorBear    = color.new(color.red, 0)
+
+
+// RSI (0-100)
+rsi = ta.rsi(close, rsiLen)
+
+// Williams %R standard (-100 to 0)
+hh = ta.highest(high, wrLen)
+ll = ta.lowest(low, wrLen)
+wrRng = hh - ll
+wr = wrRng == 0 ? -50.0 : (hh - close) / wrRng * -100
+
+// Normalize W%R to 0-100 for fusion (0 = oversold, 100 = overbought)
+wrNorm = wr + 100.0
+
+
+// Fused oscillator: average of RSI and normalized W%R (0-100)
+duoRaw = (rsi + wrNorm) / 2.0
+duoSm  = ta.sma(duoRaw, oscSmooth)
+
+// Zone thresholds derived from individual thresholds
+osZone = (rsiOS + (wrOS + 100.0)) / 2.0
+obZone = (rsiOB + (wrOB + 100.0)) / 2.0
+
+
+// Turn detection (matches main Duo indicator logic)
+rsiTurnUp   = rsi[1] < rsiOS and rsi > rsi[1]
+wrTurnUp    = wr[1] <= wrOS and wr > wr[1]
+rsiTurnDown = rsi[1] > rsiOB and rsi < rsi[1]
+wrTurnDown  = wr[1] > wrOB and wr < wr[1]
+
+// Classification
+bothOversold   = requireTurn ? (rsiTurnUp and wrTurnUp) : (rsi < rsiOS and wr <= wrOS)
+bothOverbought = requireTurn ? (rsiTurnDown and wrTurnDown) : (rsi > rsiOB and wr > wrOB)
+
+
+// Duo oscillator line
+oscColor = bothOversold ? colorBull : bothOverbought ? colorBear : color.new(color.gray, 0)
+plot(duoSm, title = "Duo Oscillator", color = oscColor, linewidth = 2)
+
+// Individual component lines
+plot(showRSI ? rsi : na, title = "RSI", color = color.new(color.orange, 20), linewidth = 1)
+plot(showWR ? wrNorm : na, title = "W%R (norm)", color = color.new(color.aqua, 20), linewidth = 1)
+
+// Individual thresholds (solid lines for each component)
+wrOSNorm = wrOS + 100.0
+wrOBNorm = wrOB + 100.0
+plot(showRSI and showZones ? rsiOS : na, title = "RSI oversold", color = color.new(color.orange, 60), linewidth = 1)
+plot(showWR and showZones ? wrOSNorm : na, title = "W%R oversold", color = color.new(color.aqua, 60), linewidth = 1)
+plot(showRSI and showZones ? rsiOB : na, title = "RSI overbought", color = color.new(color.orange, 60), linewidth = 1)
+plot(showWR and showZones ? wrOBNorm : na, title = "W%R overbought", color = color.new(color.aqua, 60), linewidth = 1)
+
+// Fused zone lines
+plot(showZones ? obZone : na, title = "Overbought zone", color = color.new(color.red, 60), linewidth = 2)
+plot(showZones ? 50.0 : na, title = "Midline", color = color.new(color.gray, 70))
+plot(showZones ? osZone : na, title = "Oversold zone", color = color.new(color.green, 60), linewidth = 2)
+
+// Background
+bgcolor(showBg ? (bothOversold ? color.new(colorBull, 85) : bothOverbought ? color.new(colorBear, 85) : na) : na)
+
+
+// Alerts
+alertcondition(bothOversold and barstate.isconfirmed, title = "Duo Osc Oversold",
+               message = "Duo Oscillator: both oversold on {{ticker}} ({{interval}})")
+
+alertcondition(bothOverbought and barstate.isconfirmed, title = "Duo Osc Overbought",
+               message = "Duo Oscillator: both overbought on {{ticker}} ({{interval}})")
+
+bullCross = ta.crossover(duoSm, obZone)
+bearCross = ta.crossunder(duoSm, osZone)
+
+alertcondition(bullCross, title = "Duo Osc Bull Cross",
+               message = "Duo Oscillator: crossed above overbought zone on {{ticker}} ({{interval}})")
+
+alertcondition(bearCross, title = "Duo Osc Bear Cross",
+               message = "Duo Oscillator: crossed below oversold zone on {{ticker}} ({{interval}})")

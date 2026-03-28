@@ -1,0 +1,88 @@
+// Copyright (c) 2026 Capital41 | MIT License
+// CAPITAL41 DUO (RSI + Williams %R)
+//
+// What it does:
+// - Dual oscillator overlay: RSI (0-100) and Williams %R (standard -100 to 0).
+// - Background turns dark green when both indicators are oversold,
+//   red when both are overbought, gray otherwise.
+// - Two large blue badges show live RSI and W%R values.
+// - Configurable alert when both oscillators enter oversold or overbought territory.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use any timeframe on any liquid instrument.
+// 4) Adjust oversold/overbought levels via inputs.
+//
+// Usage guide:
+// - Dark green background = both RSI and W%R oversold (potential buy zone).
+// - Red background = both RSI and W%R overbought (potential sell zone).
+// - Gray background = mixed/neutral readings.
+
+
+
+//@version=6
+indicator("Capital41 Duo", overlay = true)
+
+// Inputs
+rsiLen     = input.int(14, "RSI length", minval = 2)
+wrLen      = input.int(14, "Williams %R length", minval = 2)
+rsiOS      = input.float(25.0, "RSI oversold level", minval = 1.0, maxval = 50.0, step = 1.0)
+rsiOB      = input.float(78.0, "RSI overbought level", minval = 50.0, maxval = 99.0, step = 1.0)
+wrOS       = input.float(-92.0, "W%R oversold level", minval = -100.0, maxval = -50.0, step = 1.0)
+wrOB       = input.float(-8.0, "W%R overbought level", minval = -50.0, maxval = 0.0, step = 1.0)
+requireTurn = input.bool(true, "Require turn confirmation")
+showBg     = input.bool(true, "Show background")
+showBadge  = input.bool(true, "Show status badge")
+
+colorBull    = color.new(color.green, 0)
+colorBear    = color.new(color.red, 0)
+colorBadge   = color.new(color.blue, 0)
+colorNeutral = color.new(color.gray, 0)
+
+
+// RSI (0-100)
+rsi = ta.rsi(close, rsiLen)
+
+// Williams %R standard (-100 to 0)
+hh = ta.highest(high, wrLen)
+ll = ta.lowest(low, wrLen)
+wrRng = hh - ll
+wr = wrRng == 0 ? -50.0 : (hh - close) / wrRng * -100
+
+
+// Turn detection: was in zone on previous bar AND now ticking back
+rsiTurnUp   = rsi[1] < rsiOS and rsi > rsi[1]
+wrTurnUp    = wr[1] <= wrOS and wr > wr[1]
+rsiTurnDown = rsi[1] > rsiOB and rsi < rsi[1]
+wrTurnDown  = wr[1] > wrOB and wr < wr[1]
+
+// Zone classification
+bothOversold   = requireTurn ? (rsiTurnUp and wrTurnUp) : (rsi < rsiOS and wr <= wrOS)
+bothOverbought = requireTurn ? (rsiTurnDown and wrTurnDown) : (rsi > rsiOB and wr > wrOB)
+
+
+// Background (dark green for buy, red for sell, gray for neutral)
+bgcolor(showBg ? (bothOversold ? color.new(colorBull, 75) : bothOverbought ? color.new(colorBear, 80) : color.new(colorNeutral, 92)) : na)
+
+
+// Status badge (2 large blue boxes, white text)
+var table status = table.new(position.bottom_left, 2, 1, border_width = 2)
+if barstate.islast
+    if showBadge
+        rsiText = " RSI " + str.tostring(rsi, "#.0") + " "
+        wrText  = " W%R " + str.tostring(wr, "#.0") + " "
+
+        table.cell(status, 0, 0, rsiText, bgcolor = color.new(colorBadge, 55), text_color = color.white, text_size = size.large)
+        table.cell(status, 1, 0, wrText, bgcolor = color.new(colorBadge, 55), text_color = color.white, text_size = size.large)
+    else
+        for i = 0 to 1
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+
+// Alerts (non-repainting, configurable via oversold/overbought inputs)
+alertcondition(bothOversold and barstate.isconfirmed, title = "Duo Oversold",
+               message = "Capital41 Duo: RSI < {{rsiOS}} + W%R < {{wrOS}} on {{ticker}} ({{interval}})")
+
+alertcondition(bothOverbought and barstate.isconfirmed, title = "Duo Overbought",
+               message = "Capital41 Duo: RSI > {{rsiOB}} + W%R > {{wrOB}} on {{ticker}} ({{interval}})")
