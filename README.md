@@ -36,6 +36,13 @@ Every script is fully standalone: paste into Pine Editor, save, and add to chart
   
 - **Fusion Oscillator** 
   Companion 0-100 oscillator for the Fusion Scalp system. Maps all four conditions into a composite score.
+  
+  
+- **Capital41_Duo**
+  W% and RSI values combined for a simple starting strategy, which includes reverasl checks and normalization.
+	
+- **Capital41_Duo_Oscillator** 
+  Companion 0-100 oscillator for the Duo.
 
 
 ### Trend & Regime
@@ -91,6 +98,13 @@ Every script is fully standalone: paste into Pine Editor, save, and add to chart
 - **Fusion Core Strategy v2**
   Converts the Fusion system into a backtestable strategy with entry-locked ATR TP/SL that doesn't shift bar-to-bar.
 
+  
+- **Capital41_Duo**
+   W% and RSI values combined for a simple starting strategy, which includes reverasl checks and normalization.
+	
+- **Capital41_Duo_Oscillator** 
+   Companion 0-100 oscillator for the Duo.
+
 
 ## Quick Start
 
@@ -110,16 +124,16 @@ Every script is fully standalone: paste into Pine Editor, save, and add to chart
 ## Suite Workflow
 
 ```
-Divergence Detector  :   trend exhaustion signal
-Order Block          :   institutional entry zone
-Liquidity Sweep      :   stop-hunt confirms the zone
-Liquidity Void Map   :   imbalance target for the move
-Structure Swings     :   BOS confirms structure shift
-Regime Matrix        :   adapts risk to market state
+Divergence Detector  -   trend exhaustion signal
+Order Block          -   institutional entry zone
+Liquidity Sweep      -   stop-hunt confirms the zone
+Liquidity Void Map   -   imbalance target for the move
+Structure Swings     -   BOS confirms structure shift
+Regime Matrix        -   adapts risk to market state
 ```
 
 ## License
 
 [MIT](LICENSE) - free to use, modify, and distribute with attribution.
 
-Copyright (c) 2026 Capital41
+Copyright (c) 2026 CAPITAL41
