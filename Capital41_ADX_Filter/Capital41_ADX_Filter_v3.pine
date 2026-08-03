@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 ADX FILTER v2
+// CAPITAL41 ADX FILTER v3
 
 // What it does:
 // - Shows ADX trend strength with DI+ and DI- directional indicators.
@@ -13,6 +13,10 @@
 // - ADDED: Strong trend threshold zone.
 // - ADDED: Status badge showing ADX value, DI+/DI-, and direction.
 // - ADDED: Alert conditions (ADX threshold crosses, DI crossovers, strong trend).
+//
+// v3 changes:
+// - FIXED: DI crossovers and ADX threshold crosses gated by barstate.isconfirmed,
+//          so alerts fire on bar close instead of flickering intra-bar.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -29,7 +33,7 @@
 
 
 //@version=6
-indicator("Capital41 ADX Filter v2", overlay = false, max_labels_count = 50)
+indicator("Capital41 ADX Filter v3", overlay = false, max_labels_count = 50)
 
 // Inputs
 adxLen       = input.int(14, "DI length", minval = 2)
@@ -80,9 +84,14 @@ else if showBg and trending
     bgColor := color.new(color.green, 92)
 bgcolor(bgColor)
 
-// DI crossovers
-diCrossUp   = ta.crossover(diPlus, diMinus)
-diCrossDown = ta.crossunder(diPlus, diMinus)
+// DI crossovers and ADX threshold crosses (confirmed: lines can cross and
+// uncross several times within one bar)
+diCrossUp    = ta.crossover(diPlus, diMinus)   and barstate.isconfirmed
+diCrossDown  = ta.crossunder(diPlus, diMinus)  and barstate.isconfirmed
+
+adxCrossUp   = ta.crossover(adxVal, threshold)    and barstate.isconfirmed
+adxCrossDown = ta.crossunder(adxVal, threshold)   and barstate.isconfirmed
+adxCrossHigh = ta.crossover(adxVal, strongThresh) and barstate.isconfirmed
 
 // Status badge
 var table status = table.new(position.bottom_left, 4, 1, border_width = 1)
@@ -103,10 +112,10 @@ if barstate.islast
             table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
 
 // Alerts
-alertcondition(ta.crossover(adxVal, threshold), title = "ADX Above Threshold",
+alertcondition(adxCrossUp, title = "ADX Above Threshold",
                message = "ADX Filter: ADX crossed above threshold on {{ticker}} ({{interval}})")
 
-alertcondition(ta.crossunder(adxVal, threshold), title = "ADX Below Threshold",
+alertcondition(adxCrossDown, title = "ADX Below Threshold",
                message = "ADX Filter: ADX crossed below threshold on {{ticker}} ({{interval}})")
 
 alertcondition(diCrossUp, title = "DI+ Crossover",
@@ -115,5 +124,5 @@ alertcondition(diCrossUp, title = "DI+ Crossover",
 alertcondition(diCrossDown, title = "DI- Crossover",
                message = "ADX Filter: DI- crossed above DI+ (bearish) on {{ticker}} ({{interval}})")
 
-alertcondition(ta.crossover(adxVal, strongThresh), title = "Strong Trend",
+alertcondition(adxCrossHigh, title = "Strong Trend",
                message = "ADX Filter: ADX crossed into strong trend zone on {{ticker}} ({{interval}})")

@@ -1,11 +1,14 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 FUSION OSCILLATOR (Companion)
+// CAPITAL41 FUSION OSCILLATOR v3 (Companion)
 
 // What it does:
 // - Plots a 0–100 Fusion Oscillator based on the same four conditions used in
 //   Capital41 Fusion Scalp (EMA trend, RSI, W%R, ATR/Volume expansion).
 // - Designed as a separate panel (like RSI) for quick confluence reading.
-
+//
+// v3 changes:
+// - ADDED: Alert conditions for zone and midline crosses, matching the C41
+//          Oscillator companion. Gated by barstate.isconfirmed.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -20,7 +23,7 @@
 
 
 //@version=6
-indicator("Capital41 Fusion Oscillator v2", overlay = false)
+indicator("Capital41 Fusion Oscillator v3", overlay = false)
 
 
 // Inputs (sync with Fusion Scalp)
@@ -108,3 +111,22 @@ plot(showZones ? 50 : na, title = "Mid",   color = color.new(color.gray, 80))
 plot(showZones ? 25 : na, title = "Lower", color = color.new(color.gray, 70))
 
 bgcolor(showBg ? (fusionSm >= 75 ? color.new(colorBull, 90) : fusionSm <= 25 ? color.new(colorBear, 90) : na) : na)
+
+
+// Alerts (crosses hoisted so ta.* runs every bar, then confirmed on bar close)
+bullZoneCross = ta.crossover(fusionSm, 75)
+bearZoneCross = ta.crossunder(fusionSm, 25)
+midCrossUp    = ta.crossover(fusionSm, 50)
+midCrossDown  = ta.crossunder(fusionSm, 50)
+
+alertcondition(bullZoneCross and barstate.isconfirmed, title = "Fusion Osc Bull Zone",
+               message = "Fusion Oscillator: crossed above upper zone on {{ticker}} ({{interval}})")
+
+alertcondition(bearZoneCross and barstate.isconfirmed, title = "Fusion Osc Bear Zone",
+               message = "Fusion Oscillator: crossed below lower zone on {{ticker}} ({{interval}})")
+
+alertcondition(midCrossUp and barstate.isconfirmed, title = "Fusion Osc Mid Cross Up",
+               message = "Fusion Oscillator: crossed above midline on {{ticker}} ({{interval}})")
+
+alertcondition(midCrossDown and barstate.isconfirmed, title = "Fusion Osc Mid Cross Down",
+               message = "Fusion Oscillator: crossed below midline on {{ticker}} ({{interval}})")

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 ORDER BLOCK DETECTOR
+// CAPITAL41 ORDER BLOCK DETECTOR v2
 
 // What it does:
 // - Detects bullish and bearish order blocks (OBs) based on impulse candles.

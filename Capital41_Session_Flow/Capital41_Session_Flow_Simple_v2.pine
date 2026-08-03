@@ -1,10 +1,15 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 SESSION FLOW SIMPLE
+// CAPITAL41 SESSION FLOW SIMPLE v2
 
 // What it does:
 // - Draws session boxes for Asia, London, and New York using a US timezone.
 // - Tracks each session high/low and optional open line.
 // - Optional breakout markers when price breaks the prior session range.
+//
+// v2 changes:
+// - FIXED: Breakout markers and alerts gated by barstate.isconfirmed, so they
+//          print on bar close rather than the moment price ticks through the
+//          prior session level.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -21,7 +26,7 @@
 
 
 //@version=6
-indicator("Capital41 Session Flow Simple", overlay = true, max_boxes_count = 300, max_labels_count = 50, max_lines_count = 50)
+indicator("Capital41 Session Flow Simple v2", overlay = true, max_boxes_count = 300, max_labels_count = 50,max_lines_count = 50)
 
 // Inputs
 useExchangeTz = input.bool(false, "Use exchange timezone")
@@ -119,9 +124,9 @@ if sessionId != 0
         line.set_x2(openLine, bar_index + 1)
 
 
-// Breakouts from previous session
-breakAbove = showBreakout and not na(prevSessHigh) and high > prevSessHigh and high[1] <= prevSessHigh
-breakBelow = showBreakout and not na(prevSessLow) and low < prevSessLow and low[1] >= prevSessLow
+// Breakouts from previous session (confirmed: marker prints on bar close)
+breakAbove = showBreakout and barstate.isconfirmed and not na(prevSessHigh) and high > prevSessHigh and high[1] <= prevSessHigh
+breakBelow = showBreakout and barstate.isconfirmed and not na(prevSessLow) and low < prevSessLow and low[1] >= prevSessLow
 
 plotshape(breakAbove, title = "Session High Breakout",
           style = shape.triangleup, location = location.belowbar,

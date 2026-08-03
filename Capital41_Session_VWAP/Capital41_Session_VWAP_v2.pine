@@ -1,0 +1,127 @@
+// Copyright (c) 2026 Capital41 | MIT License
+// CAPITAL41 SESSION VWAP v2
+
+// What it does:
+// - Calculates an intraday VWAP that resets each session.
+// - Optional standard deviation band around VWAP for context.
+// - Works on intraday timeframes with volume data.
+// - Status badge showing VWAP value, distance, and position.
+// - Alerts on VWAP and band crosses.
+//
+// v2 changes:
+// - ADDED: Status badge (VWAP level, % distance, above/below).
+// - ADDED: Alert conditions for VWAP and 1σ band crosses, gated by
+//          barstate.isconfirmed.
+//
+// TradingView setup:
+// 1) Open TradingView -> Pine Editor.
+// 2) Paste this script, Save, and Add to chart.
+// 3) Use 30m or 4h on BTC or US stocks.
+// 4) Choose session times and timezone to match your market.
+//
+// Usage guide (30m/4h):
+// - VWAP acts as fair value; price above = bullish bias, below = bearish.
+// - Use sweeps or MA trend for entries around VWAP.
+// - For 24/7 markets, set Session to 0000-2359.
+
+
+
+//@version=6
+indicator("Capital41 Session VWAP v2", overlay = true, max_lines_count = 50)
+
+// Inputs
+useExchangeTz = input.bool(false, "Use exchange timezone")
+sessTz        = input.string("America/New_York", "Session timezone",
+                             options = ["America/New_York", "America/Chicago", "Etc/UTC", "Europe/London", "Asia/Tokyo"])
+sessTimes     = input.session("0930-1600", "Session times")
+
+showVwap      = input.bool(true, "Show VWAP")
+showBands     = input.bool(false, "Show 1σ bands")
+bandMult      = input.float(1.0, "Band multiplier", minval = 0.1, maxval = 3.0)
+showOnlySession = input.bool(true, "Plot only during session")
+showBadge     = input.bool(true, "Show status badge")
+
+colorVwap = color.new(color.blue, 0)
+colorBand = color.new(color.blue, 70)
+colorBull = color.new(color.lime, 0)
+colorBear = color.new(color.red, 0)
+
+
+// Session detection
+inSession = useExchangeTz ? not na(time(timeframe.period, sessTimes)) : not na(time(timeframe.period, sessTimes, sessTz))
+newSession = inSession and not inSession[1]
+
+
+// Session VWAP (manual)
+var float cumPV = 0.0
+var float cumV  = 0.0
+var float cumP2V = 0.0
+
+if newSession
+    cumPV := 0.0
+    cumV := 0.0
+    cumP2V := 0.0
+
+if inSession
+    tp = hlc3
+    cumPV += tp * volume
+    cumV  += volume
+    cumP2V += tp * tp * volume
+
+vwap = cumV > 0 ? cumPV / cumV : na
+variance = cumV > 0 ? (cumP2V / cumV) - (vwap * vwap) : na
+stdev = variance > 0 ? math.sqrt(variance) : 0.0
+
+// Raw band levels, kept independent of display toggles so alerts still work
+// when the bands are hidden
+vwapUpper = vwap + stdev * bandMult
+vwapLower = vwap - stdev * bandMult
+
+visible  = not showOnlySession or inSession
+vwapPlot = showVwap and visible ? vwap : na
+upper = showBands and visible ? vwapUpper : na
+lower = showBands and visible ? vwapLower : na
+
+plot(vwapPlot, title = "Session VWAP", color = colorVwap, linewidth = 2)
+plot(upper, title = "VWAP Upper", color = colorBand, linewidth = 1)
+plot(lower, title = "VWAP Lower", color = colorBand, linewidth = 1)
+
+
+// Status badge
+var table status = table.new(position.top_right, 3, 1, border_width = 1)
+if barstate.islast
+    if showBadge and not na(vwap)
+        dist    = vwap != 0 ? (close - vwap) / vwap * 100 : 0
+        above   = close > vwap
+        posText = above ? " ABOVE " : " BELOW "
+        posBg   = above ? color.new(colorBull, 65) : color.new(colorBear, 65)
+
+        table.cell(status, 0, 0, " VWAP " + str.tostring(vwap, format.mintick) + " ",
+                   bgcolor = color.new(colorVwap, 70), text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, " " + str.tostring(dist, "#.##") + "% ",
+                   bgcolor = above ? color.new(colorBull, 70) : color.new(colorBear, 70),
+                   text_color = color.white, text_size = size.tiny)
+        table.cell(status, 2, 0, posText, bgcolor = posBg,
+                   text_color = color.white, text_size = size.tiny)
+    else
+        for i = 0 to 2
+            table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
+
+
+// Alerts (crosses hoisted so ta.* runs every bar, then confirmed on bar close)
+vwapCrossUp   = ta.crossover(close, vwap)
+vwapCrossDown = ta.crossunder(close, vwap)
+upperCross    = ta.crossover(close, vwapUpper)
+lowerCross    = ta.crossunder(close, vwapLower)
+
+alertcondition(vwapCrossUp and barstate.isconfirmed, title = "VWAP Cross Up",
+               message = "Session VWAP: price closed above VWAP on {{ticker}} ({{interval}})")
+
+alertcondition(vwapCrossDown and barstate.isconfirmed, title = "VWAP Cross Down",
+               message = "Session VWAP: price closed below VWAP on {{ticker}} ({{interval}})")
+
+alertcondition(upperCross and barstate.isconfirmed, title = "VWAP Upper Band Cross",
+               message = "Session VWAP: price closed above the upper band on {{ticker}} ({{interval}})")
+
+alertcondition(lowerCross and barstate.isconfirmed, title = "VWAP Lower Band Cross",
+               message = "Session VWAP: price closed below the lower band on {{ticker}} ({{interval}})")

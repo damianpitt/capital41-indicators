@@ -209,4 +209,4 @@ plotshape(showSignalMarker and keyDatePrev, title = "C41 Key Date Prev",
           style = shape.flag, location = location.top, offset = -1, color = color.new(color.yellow, 0), size = size.tiny, text = "KEY")
 
 alertcondition(keyDateNow or keyDatePrev, title = "C41 Key Calendar Date",
-               message = "C41KeyCalendar: recurring key date active on {{ticker}} ({{interval}})")
+               message = "Key Calendar: recurring key date active on {{ticker}} ({{interval}})")

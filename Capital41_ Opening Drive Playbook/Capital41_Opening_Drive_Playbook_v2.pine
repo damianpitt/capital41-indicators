@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 OPENING DRIVE PLAYBOOK
+// CAPITAL41 OPENING DRIVE PLAYBOOK v2
 
 // What it does:
 // - Builds a dynamic Opening Drive (first 30/60 min) from your chosen session.
@@ -7,6 +7,11 @@
 // - Projects adaptive continuation lines (drive edge + VWAP deviation).
 // - Projects adaptive fade lines (drive midpoint +/- sigma) for mean-revert targets.
 // - Tracks session stats: gap size, overnight drift, and first pullback depth.
+//
+// v2 changes:
+// - FIXED: Continuation and fade triggers gated by barstate.isconfirmed, so
+//          markers and alerts fire on bar close instead of repainting when a
+//          live close crosses a trigger line and pulls back.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -23,7 +28,7 @@
 
 
 //@version=6
-indicator("Capital41 Opening Drive Playbook", overlay = true, max_boxes_count = 80, max_labels_count = 100, max_lines_count = 80)
+indicator("Capital41 Opening Drive Playbook v2", overlay = true, max_boxes_count = 80, max_labels_count = 100, max_lines_count = 80)
 
 // Inputs
 useExchangeTz = input.bool(false, "Use exchange timezone")
@@ -215,10 +220,15 @@ plot(showTriggerLines and inSession and driveLocked ? contLower : na, title = "C
 plot(showTriggerLines and inSession and driveLocked ? fadeUpper : na, title = "Fade Upper", color = color.new(colorFade, 15), linewidth = 1, style = plot.style_linebr)
 plot(showTriggerLines and inSession and driveLocked ? fadeLower : na, title = "Fade Lower", color = color.new(colorFade, 15), linewidth = 1, style = plot.style_linebr)
 
-contLong = inSession and driveLocked and ta.crossover(close, contUpper)
-contShort = inSession and driveLocked and ta.crossunder(close, contLower)
-fadeUpTouch = inSession and driveLocked and high >= fadeUpper and high[1] < fadeUpper
-fadeDownTouch = inSession and driveLocked and low <= fadeLower and low[1] > fadeLower
+// Crosses are hoisted so ta.* runs every bar and is never short-circuited
+contUpCross = ta.crossover(close, contUpper)
+contDnCross = ta.crossunder(close, contLower)
+
+// Triggers (confirmed: a live close can cross a line and fall back before close)
+contLong      = inSession and driveLocked and barstate.isconfirmed and contUpCross
+contShort     = inSession and driveLocked and barstate.isconfirmed and contDnCross
+fadeUpTouch   = inSession and driveLocked and barstate.isconfirmed and high >= fadeUpper and high[1] < fadeUpper
+fadeDownTouch = inSession and driveLocked and barstate.isconfirmed and low <= fadeLower and low[1] > fadeLower
 
 plotshape(contLong, title = "Continuation Long", style = shape.triangleup,
           location = location.belowbar, color = colorContUp, size = size.tiny, text = "C")

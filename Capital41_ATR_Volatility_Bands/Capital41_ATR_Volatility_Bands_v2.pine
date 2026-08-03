@@ -1,10 +1,15 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 ATR VOLATILITY BANDS
+// CAPITAL41 ATR VOLATILITY BANDS v2
 
 // What it does:
 // - Draws ATR-based bands around a moving average to visualize volatility range.
 // - Optional recent-range box highlights the last N bars' high/low range.
 // - Optional expansion highlight when ATR is rising above its average.
+// - Alerts on volatility expansion and band crosses.
+//
+// v2 changes:
+// - ADDED: Alert conditions for volatility expansion start and band crosses,
+//          gated by barstate.isconfirmed.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -20,7 +25,7 @@
 
 
 //@version=6
-indicator("Capital41 ATR Volatility Bands", overlay = true, max_boxes_count = 20)
+indicator("Capital41 ATR Volatility Bands v2", overlay = true, max_boxes_count = 20)
 
 
 // Inputs
@@ -76,3 +81,18 @@ else
 atrAvg = ta.sma(atr, atrLen)
 volExp = atrAvg > 0 and atr > atrAvg * expFactor
 bgcolor(showExpansion and volExp ? color.new(color.orange, 92) : na)
+
+
+// Alerts (crosses hoisted so ta.* runs every bar, then confirmed on bar close)
+expStart      = volExp and not volExp[1]
+upperTagCross = ta.crossover(close, upper)
+lowerTagCross = ta.crossunder(close, lower)
+
+alertcondition(expStart and barstate.isconfirmed, title = "Volatility Expansion",
+               message = "ATR Bands: volatility expansion started on {{ticker}} ({{interval}})")
+
+alertcondition(upperTagCross and barstate.isconfirmed, title = "Upper Band Cross",
+               message = "ATR Bands: price closed above the upper band on {{ticker}} ({{interval}})")
+
+alertcondition(lowerTagCross and barstate.isconfirmed, title = "Lower Band Cross",
+               message = "ATR Bands: price closed below the lower band on {{ticker}} ({{interval}})")

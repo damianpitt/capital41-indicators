@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 FUSION SCALP v2 (RSI + W%R + EMA + ATR/VOL)
+// CAPITAL41 FUSION SCALP v3 (RSI + W%R + EMA + ATR/VOL)
 
 // What it does:
 // - High-confluence fusion signal for 30m scalping.
@@ -129,10 +129,10 @@ plotshape(shortSignal, title = "Fusion Short", style = shape.triangledown,
           location = location.abovebar, color = colorBear, size = size.small, text = "S")
 
 alertcondition(longSignal, title = "Fusion Long",
-               message = "Fusion Long: RSI + W%R + EMA + ATR/Vol aligned on {{ticker}} ({{interval}})")
+               message = "Fusion Scalp: long signal - RSI + W%R + EMA + ATR/Vol aligned on {{ticker}} ({{interval}})")
 
 alertcondition(shortSignal, title = "Fusion Short",
-               message = "Fusion Short: RSI + W%R + EMA + ATR/Vol aligned on {{ticker}} ({{interval}})")
+               message = "Fusion Scalp: short signal - RSI + W%R + EMA + ATR/Vol aligned on {{ticker}} ({{interval}})")
 
 
 // Visual context

@@ -119,10 +119,10 @@ plotshape(shortSignal, title = "Confluence Short",
           color = colorBear, size = size.small, text = "S")
 
 alertcondition(longSignal, title = "Confluence Long",
-               message = "Confluence Long: MA + RSI + WR + Sweep aligned on {{ticker}} ({{interval}})")
+               message = "Confluence Core: long signal - MA + RSI + W%R + Sweep aligned on {{ticker}} ({{interval}})")
 
 alertcondition(shortSignal, title = "Confluence Short",
-               message = "Confluence Short: MA + RSI + WR + Sweep aligned on {{ticker}} ({{interval}})")
+               message = "Confluence Core: short signal - MA + RSI + W%R + Sweep aligned on {{ticker}} ({{interval}})")
 
 // Status badge (single row)
 var table status = table.new(position.top_right, 5, 1, border_width = 1)

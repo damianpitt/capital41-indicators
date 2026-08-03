@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 DIVERGENCE DETECTOR (RSI + Williams %R)
+// CAPITAL41 DIVERGENCE DETECTOR v2 (RSI + Williams %R)
 
 // What it does:
 // - Detects regular and hidden divergences on RSI and Williams %R.

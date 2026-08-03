@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 PREVIOUS DAY/WEEK/MONTH LEVELS v2
+// CAPITAL41 PREVIOUS DAY/WEEK/MONTH LEVELS v3
 
 // What it does:
 // - Plots Previous Day High/Low (PDH/PDL) with midpoint.
@@ -17,6 +17,10 @@
 // - ADDED: Status badge showing distance to PDH/PDL and position in range.
 // - ADDED: User-configurable colors for each timeframe.
 //
+// v3 changes:
+// - FIXED: Touch and breakout conditions gated by barstate.isconfirmed, so
+//          alerts fire on bar close instead of repainting intra-bar.
+//
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
 // 2) Paste this script, Save, and Add to chart.
@@ -31,7 +35,7 @@
 
 
 //@version=6
-indicator("Capital41 PDH/PDL Levels v2", overlay = true, max_labels_count = 50, max_lines_count = 50)
+indicator("Capital41 PDH/PDL Levels v3", overlay = true, max_labels_count = 50, max_lines_count = 50)
 
 // Inputs
 showPD     = input.bool(true, "Show previous day levels")
@@ -120,18 +124,18 @@ if barstate.islast and showLabels
                   color = color.new(colorPMo, 70), textcolor = color.white, size = size.tiny)
 
 
-// Touch and breakout detection
+// Touch and breakout detection (confirmed so alerts cannot retract mid-bar)
 tol = close * touchTol / 100.0
 
-touchPDH = showPD and math.abs(close - pdh) <= tol
-touchPDL = showPD and math.abs(close - pdl) <= tol
-touchPWH = showPW and math.abs(close - pwh) <= tol
-touchPWL = showPW and math.abs(close - pwl) <= tol
+touchPDH = showPD and barstate.isconfirmed and math.abs(close - pdh) <= tol
+touchPDL = showPD and barstate.isconfirmed and math.abs(close - pdl) <= tol
+touchPWH = showPW and barstate.isconfirmed and math.abs(close - pwh) <= tol
+touchPWL = showPW and barstate.isconfirmed and math.abs(close - pwl) <= tol
 
-breakPDH = showPD and close > pdh and close[1] <= pdh
-breakPDL = showPD and close < pdl and close[1] >= pdl
-breakPWH = showPW and close > pwh and close[1] <= pwh
-breakPWL = showPW and close < pwl and close[1] >= pwl
+breakPDH = showPD and barstate.isconfirmed and close > pdh and close[1] <= pdh
+breakPDL = showPD and barstate.isconfirmed and close < pdl and close[1] >= pdl
+breakPWH = showPW and barstate.isconfirmed and close > pwh and close[1] <= pwh
+breakPWL = showPW and barstate.isconfirmed and close < pwl and close[1] >= pwl
 
 // Status badge
 var table status = table.new(position.top_right, 3, 1, border_width = 1)

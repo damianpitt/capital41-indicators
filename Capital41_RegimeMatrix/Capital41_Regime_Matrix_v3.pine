@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 REGIME MATRIX
+// CAPITAL41 REGIME MATRIX v3
 
 // What it does:
 // - Classifies each bar into one of four states: Trend, Expansion,
@@ -8,6 +8,10 @@
 //   one-dimensional trend filters.
 // - Auto-switches EMA bias and ATR stop width by regime.
 // - Includes a pressure meter (0-100) to read directional pressure quickly.
+//
+// v3 changes:
+// - FIXED: Pressure alerts gated by barstate.isconfirmed so they fire on bar
+//          close. The status badge still reads live values.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -24,7 +28,7 @@
 
 
 //@version=6
-indicator("Capital41 Regime Matrix v2", overlay = true, max_labels_count = 100)
+indicator("Capital41 Regime Matrix v3", overlay = true, max_labels_count = 100)
 
 // Inputs
 baseEmaLen        = input.int(50, "Base EMA length", minval = 5)
@@ -128,6 +132,10 @@ pressure = ta.ema(pressureRaw, pressureSmooth)
 pressureBull = pressure >= 60
 pressureBear = pressure <= 40
 
+// Alert-only variants: the badge reads live values, alerts wait for bar close
+pressureBullAlert = pressureBull and barstate.isconfirmed
+pressureBearAlert = pressureBear and barstate.isconfirmed
+
 regimeChanged = regime != regime[1] and barstate.isconfirmed
 if showLabels and regimeChanged
     y = regime == 1 ? low : high
@@ -166,5 +174,5 @@ alertcondition(regimeChanged and regime == 3, title = "Regime Compression",
 alertcondition(regimeChanged and regime == 4, title = "Regime Mean Reversion",
                message = "Regime Matrix: Mean Reversion state on {{ticker}} ({{interval}})")
 
-alertcondition(pressureBull, title = "Bullish Pressure", message = "Regime Matrix: pressure > 60 on {{ticker}} ({{interval}})")
-alertcondition(pressureBear, title = "Bearish Pressure", message = "Regime Matrix: pressure < 40 on {{ticker}} ({{interval}})")
+alertcondition(pressureBullAlert, title = "Bullish Pressure", message = "Regime Matrix: pressure > 60 on {{ticker}} ({{interval}})")
+alertcondition(pressureBearAlert, title = "Bearish Pressure", message = "Regime Matrix: pressure < 40 on {{ticker}} ({{interval}})")
