@@ -1,28 +1,33 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// C41 OSCILLATOR (Companion)
+// CAPITAL41 CORE STRATEGY OSCILLATOR v2 (Companion)
 
 // What it does:
-// - Plots a 0-100 C41 oscillator from the same three metrics used in
-//   C41 Core Strategy (MA trend, RSI, Williams %R).
+// - Plots a 0-100 oscillator from the same three metrics used in
+//   Capital41 Core Strategy (MA trend, RSI, Williams %R).
 // - Designed as a separate panel for fast setup confirmation.
+//
+// v2 changes:
+// - FIXED: Upper/lower zone cross alerts gated by barstate.isconfirmed, so they
+//          cannot fire and retract within the same bar.
+// - FIXED: Renamed from "C41 Oscillator" to match the suite naming.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
 // 2) Paste this script, Save, and Add to chart.
 // 3) Use 30m on BTC or US stocks.
-// 4) Keep inputs synced with C41 Core Strategy.
-
+// 4) Keep inputs synced with Capital41 Core Strategy.
+//
 // Usage guide (30m):
 // - Higher values = stronger bullish alignment.
 // - Lower values = stronger bearish alignment.
-// - Use with C41 strategy entries/exits for cleaner timing.
+// - Use with Core Strategy entries/exits for cleaner timing.
 
 
 
 //@version=6
-indicator("C41 Oscillator", overlay = false)
+indicator("Capital41 Core Strategy Oscillator v2", overlay = false)
 
-// Inputs (sync with C41 Core Strategy)
+// Inputs (sync with Capital41 Core Strategy)
 maType      = input.string("EMA", "MA type", options = ["EMA", "SMA"])
 maLen       = input.int(50, "MA length", minval = 5)
 
@@ -56,7 +61,7 @@ wr_manual(_high, _low, _close, _len) =>
     rng == 0 ? -50.0 : (hh - _close) / rng * -100
 
 
-// Core metrics (same as C41 strategy)
+// Core metrics (same as Core Strategy)
 ma = maType == "EMA" ? ta.ema(close, maLen) : ta.sma(close, maLen)
 trendLong = close > ma
 trendShort = close < ma
@@ -74,7 +79,7 @@ wrLong = requireTurn ? wrLongTurn : wr < wrOS
 wrShort = requireTurn ? wrShortTurn : wr > wrOB
 
 
-// C41 Oscillator (0-100) from three metrics
+// Oscillator (0-100) from three metrics
 scoreLong = (trendLong ? 1 : 0) + (rsiLong ? 1 : 0) + (wrLong ? 1 : 0)
 scoreShort = (trendShort ? 1 : 0) + (rsiShort ? 1 : 0) + (wrShort ? 1 : 0)
 
@@ -83,7 +88,7 @@ c41 = (c41Raw + 3.0) * (100.0 / 6.0)
 c41Sm = ta.sma(c41, oscSmooth)
 
 oscColor = c41Raw > 0 ? colorBull : c41Raw < 0 ? colorBear : color.new(color.gray, 0)
-plot(c41Sm, title = "C41 Oscillator", color = oscColor, linewidth = 2)
+plot(c41Sm, title = "Core Strategy Oscillator", color = oscColor, linewidth = 2)
 
 plot(showZones ? upperZone : na, title = "Upper", color = color.new(color.gray, 70))
 plot(showZones ? midZone : na, title = "Mid", color = color.new(color.gray, 80))
@@ -93,10 +98,12 @@ bgcolor(showBg ? (c41Sm >= upperZone ? color.new(colorBull, 90) : c41Sm <= lower
 
 longSetup = trendLong and rsiLong and wrLong and barstate.isconfirmed
 shortSetup = trendShort and rsiShort and wrShort and barstate.isconfirmed
+
+// Crosses hoisted so ta.* runs every bar, then confirmed on bar close
 bullCross = ta.crossover(c41Sm, upperZone)
 bearCross = ta.crossunder(c41Sm, lowerZone)
 
-alertcondition(longSetup, title = "C41 Osc Long Setup", message = "C41 Oscillator: long setup on {{ticker}} ({{interval}})")
-alertcondition(shortSetup, title = "C41 Osc Short Setup", message = "C41 Oscillator: short setup on {{ticker}} ({{interval}})")
-alertcondition(bullCross, title = "C41 Osc Bull Cross", message = "C41 Oscillator: crossed above upper zone on {{ticker}} ({{interval}})")
-alertcondition(bearCross, title = "C41 Osc Bear Cross", message = "C41 Oscillator: crossed below lower zone on {{ticker}} ({{interval}})")
+alertcondition(longSetup, title = "Core Osc Long Setup", message = "Core Strategy Oscillator: long setup on {{ticker}} ({{interval}})")
+alertcondition(shortSetup, title = "Core Osc Short Setup", message = "Core Strategy Oscillator: short setup on {{ticker}} ({{interval}})")
+alertcondition(bullCross and barstate.isconfirmed, title = "Core Osc Bull Cross", message = "Core Strategy Oscillator: crossed above upper zone on {{ticker}} ({{interval}})")
+alertcondition(bearCross and barstate.isconfirmed, title = "Core Osc Bear Cross", message = "Core Strategy Oscillator: crossed below lower zone on {{ticker}} ({{interval}})")

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// C41 CORE STRATEGY v2 (MA + RSI + W%R)
+// CAPITAL41 CORE STRATEGY v3 (MA + RSI + W%R)
 
 // What it does:
 // - Minimal strategy using only moving average trend, RSI, and Williams %R.
@@ -13,11 +13,19 @@
 //   The ATR is captured at entry time and does NOT shift on subsequent bars.
 // - ADDED: Configurable risk-reward ratio for TP target.
 //
+// v3 changes:
+// - FIXED: Position size is 95% of equity per trade (was a fixed 1 unit, e.g.
+//          1 BTC on a $10k account), with 2 ticks slippage and 100% margin.
+// - FIXED: Alerts use alert() calls, the alert method strategies support.
+// - FIXED: Renamed from "C41 Core Strategy" to match the suite naming.
+// - ADDED: Badge position input.
+//
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
 // 2) Paste this script, Save, and Add to chart.
 // 3) Use 30m on BTC or US stocks.
 // 4) Keep defaults first, then tune MA/RSI/W%R thresholds.
+// 5) For alerts, create an alert on the strategy using alert() function calls.
 //
 // Usage guide (30m):
 // - Long entry: close above MA + RSI long condition + W%R long condition.
@@ -28,8 +36,10 @@
 
 //@version=6
 
-strategy("C41 Core Strategy v2", overlay = true, pyramiding = 0,
-         initial_capital = 10000, commission_type = strategy.commission.percent, commission_value = 0.075)
+strategy("Capital41 Core Strategy v3", overlay = true, pyramiding = 0,
+         initial_capital = 10000, default_qty_type = strategy.percent_of_equity, default_qty_value = 95,
+         commission_type = strategy.commission.percent, commission_value = 0.075,
+         slippage = 2, margin_long = 100, margin_short = 100)
 
 // Inputs
 maType      = input.string("EMA", "MA type", options = ["EMA", "SMA"])
@@ -55,10 +65,22 @@ rrTarget    = input.float(1.5, "Risk-reward target", minval = 0.5, maxval = 10.0
 showSignals = input.bool(true, "Show entry markers")
 showBg      = input.bool(true, "Show setup background")
 showBadge   = input.bool(true, "Show status badge")
+badgePos    = input.string("Bottom Left", "Badge position", options = ["Top Right", "Top Left", "Top Center", "Bottom Right", "Bottom Left", "Bottom Center", "Middle Right", "Middle Left"])
 
 colorBull    = color.new(color.lime, 0)
 colorBear    = color.new(color.red, 0)
 colorNeutral = color.new(color.gray, 80)
+
+f_pos(_p) =>
+    switch _p
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Bottom Right"  => position.bottom_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        "Middle Right"  => position.middle_right
+        "Middle Left"   => position.middle_left
+        => position.top_right
 
 // Williams %R helper
 wr_manual(_high, _low, _close, _len) =>
@@ -139,7 +161,7 @@ bgcolor(showBg ? (longSetup ? color.new(colorBull, 90) : shortSetup ? color.new(
 
 
 // Status badge
-var table status = table.new(position.bottom_left, 4, 1, border_width = 1)
+var table status = table.new(f_pos(badgePos), 4, 1, border_width = 1)
 if barstate.islast
     if showBadge
         maText = trendLong ? " MA+ " : trendShort ? " MA- " : " MA0 "
@@ -155,7 +177,14 @@ if barstate.islast
         for i = 0 to 3
             table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
 
-alertcondition(longEntry, title = "C41 Long", message = "C41 Strategy: long entry on {{ticker}} ({{interval}})")
-alertcondition(shortEntry, title = "C41 Short", message = "C41 Strategy: short entry on {{ticker}} ({{interval}})")
-alertcondition(longExit, title = "C41 Long Exit", message = "C41 Strategy: long exit on {{ticker}} ({{interval}})")
-alertcondition(shortExit, title = "C41 Short Exit", message = "C41 Strategy: short exit on {{ticker}} ({{interval}})")
+// Alerts (strategies alert through alert() calls)
+alertSuffix = " on " + syminfo.ticker + " (" + timeframe.period + ")"
+
+if longEntry
+    alert("Core Strategy: long entry" + alertSuffix, alert.freq_once_per_bar_close)
+if shortEntry
+    alert("Core Strategy: short entry" + alertSuffix, alert.freq_once_per_bar_close)
+if longExit
+    alert("Core Strategy: long exit" + alertSuffix, alert.freq_once_per_bar_close)
+if shortExit
+    alert("Core Strategy: short exit" + alertSuffix, alert.freq_once_per_bar_close)
