@@ -1,11 +1,19 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 CONFLUENCE CORE
+// CAPITAL41 CONFLUENCE CORE v2
 
 // What it does:
 // - Combines trend (MA), RSI, Williams %R, and Liquidity Sweep into one clear
 //   long/short signal.
 // - Includes a compact single-row status badge on the last bar.
 // - Non-repainting: signals only after bar close.
+//
+// v2 changes:
+// - FIXED: Hiding signals no longer disables the alerts.
+// - FIXED: Badge SW and SIG cells show the last closed bar. They stayed empty
+//          on live charts because the live bar is never confirmed.
+// - FIXED: Volume filter is skipped on symbols with no volume data instead of
+//          blocking every sweep.
+// - ADDED: Badge position input.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -21,7 +29,7 @@
 
 
 //@version=6
-indicator("Capital41 Confluence Core", overlay = true, max_labels_count = 50)
+indicator("Capital41 Confluence Core v2", overlay = true)
 
 // Inputs tuned for 30m-4H
 maType        = input.string("EMA", "MA type", options = ["EMA", "SMA"])
@@ -45,10 +53,22 @@ zoneBuffer    = input.int(5, "Zone buffer", minval = 0, maxval = 20)
 showMA        = input.bool(true, "Show moving average")
 showSignals   = input.bool(true, "Show confluence signals")
 showBadge     = input.bool(true, "Show status badge")
+badgePos      = input.string("Top Right", "Badge position", options = ["Top Right", "Top Left", "Top Center", "Bottom Right", "Bottom Left", "Bottom Center", "Middle Right", "Middle Left"])
 
 colorBull    = color.new(color.lime, 0)
 colorBear    = color.new(color.red, 0)
 colorNeutral = color.new(color.gray, 80)
+
+f_pos(_p) =>
+    switch _p
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Bottom Right"  => position.bottom_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        "Middle Right"  => position.middle_right
+        "Middle Left"   => position.middle_left
+        => position.top_right
 
 
 // Moving average
@@ -91,30 +111,31 @@ wrShortLoose    = wr > wrOBLoose
 wrLong  = signalMode == "Strict" ? wrLongStrict : signalMode == "Loose" ? wrLongLoose : wrLongStandard
 wrShort = signalMode == "Strict" ? wrShortStrict : signalMode == "Loose" ? wrShortLoose : wrShortStandard
 
-// Liquidity sweep
+// Liquidity sweep (volume check skipped when the symbol has no volume data)
 priorHigh = ta.highest(high[1], sweepLookback)
 priorLow  = ta.lowest(low[1],  sweepLookback)
 
+hasVolume = ta.cum(nz(volume)) > 0
 volSma   = ta.sma(volume, volLookback)
 volRatio = volSma > 0 ? volume / volSma : 0
 volThresh = signalMode == "Strict" ? minVolRatio * 1.2 : signalMode == "Loose" ? minVolRatio * 0.9 : minVolRatio
-highVol  = volRatio >= volThresh
+highVol  = not hasVolume or volRatio >= volThresh
 
 bullSweep = low < priorLow and close >= priorLow and highVol and barstate.isconfirmed
 bearSweep = high > priorHigh and close <= priorHigh and highVol and barstate.isconfirmed
 
-// Confluence
+// Confluence (alerts do not depend on the display toggle)
 trendLong  = close > ma
 trendShort = close < ma
 
-longSignal  = showSignals and trendLong and bullSweep and rsiLong and wrLong
-shortSignal = showSignals and trendShort and bearSweep and rsiShort and wrShort
+longSignal  = trendLong and bullSweep and rsiLong and wrLong
+shortSignal = trendShort and bearSweep and rsiShort and wrShort
 
-plotshape(longSignal, title = "Confluence Long",
+plotshape(showSignals and longSignal, title = "Confluence Long",
           style = shape.triangleup, location = location.belowbar,
           color = colorBull, size = size.small, text = "L")
 
-plotshape(shortSignal, title = "Confluence Short",
+plotshape(showSignals and shortSignal, title = "Confluence Short",
           style = shape.triangledown, location = location.abovebar,
           color = colorBear, size = size.small, text = "S")
 
@@ -124,23 +145,29 @@ alertcondition(longSignal, title = "Confluence Long",
 alertcondition(shortSignal, title = "Confluence Short",
                message = "Confluence Core: short signal - MA + RSI + W%R + Sweep aligned on {{ticker}} ({{interval}})")
 
+// Badge SW and SIG read the last closed bar (the live bar is never confirmed)
+swBull   = barstate.isconfirmed ? bullSweep : bullSweep[1]
+swBear   = barstate.isconfirmed ? bearSweep : bearSweep[1]
+sigLong  = barstate.isconfirmed ? longSignal : longSignal[1]
+sigShort = barstate.isconfirmed ? shortSignal : shortSignal[1]
+
 // Status badge (single row)
-var table status = table.new(position.top_right, 5, 1, border_width = 1)
+var table status = table.new(f_pos(badgePos), 5, 1, border_width = 1)
 
 
 if barstate.islast
     if showBadge
         maText = trendLong ? "MA+" : trendShort ? "MA-" : "MA0"
-        swText = bullSweep ? "SW+" : bearSweep ? "SW-" : "SW0"
+        swText = swBull ? "SW+" : swBear ? "SW-" : "SW0"
         rsiText = rsiLong ? "RSI+" : rsiShort ? "RSI-" : "RSI0"
         wrText = wrLong ? "WR+" : wrShort ? "WR-" : "WR0"
-        sigText = longSignal ? "SIG L" : shortSignal ? "SIG S" : "SIG -"
+        sigText = sigLong ? "SIG L" : sigShort ? "SIG S" : "SIG -"
 
         table.cell(status, 0, 0, maText, bgcolor = trendLong ? color.new(colorBull, 70) : trendShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
-        table.cell(status, 1, 0, swText, bgcolor = bullSweep ? color.new(colorBull, 70) : bearSweep ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 1, 0, swText, bgcolor = swBull ? color.new(colorBull, 70) : swBear ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
         table.cell(status, 2, 0, rsiText, bgcolor = rsiLong ? color.new(colorBull, 70) : rsiShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
         table.cell(status, 3, 0, wrText, bgcolor = wrLong ? color.new(colorBull, 70) : wrShort ? color.new(colorBear, 70) : colorNeutral, text_color = color.white, text_size = size.tiny)
-        table.cell(status, 4, 0, sigText, bgcolor = longSignal ? color.new(colorBull, 60) : shortSignal ? color.new(colorBear, 60) : colorNeutral, text_color = color.white, text_size = size.tiny)
+        table.cell(status, 4, 0, sigText, bgcolor = sigLong ? color.new(colorBull, 60) : sigShort ? color.new(colorBear, 60) : colorNeutral, text_color = color.white, text_size = size.tiny)
     else
         for i = 0 to 4
             table.cell(status, i, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.black, 100))
