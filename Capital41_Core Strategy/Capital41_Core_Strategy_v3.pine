@@ -33,7 +33,6 @@
 // - Exit when trend fails, opposite setup appears, or ATR TP/SL is hit.
 
 
-
 //@version=6
 
 strategy("Capital41 Core Strategy v3", overlay = true, pyramiding = 0,

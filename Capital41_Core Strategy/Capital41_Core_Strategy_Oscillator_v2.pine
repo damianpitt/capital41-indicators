@@ -23,7 +23,6 @@
 // - Use with Core Strategy entries/exits for cleaner timing.
 
 
-
 //@version=6
 indicator("Capital41 Core Strategy Oscillator v2", overlay = false)
 
