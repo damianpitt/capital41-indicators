@@ -1,17 +1,28 @@
 // Copyright (c) 2026 Capital41 | MIT License
-// CAPITAL41 OPENING DRIVE PLAYBOOK v2
+// CAPITAL41 OPENING DRIVE PLAYBOOK v3
 
 // What it does:
 // - Builds a dynamic Opening Drive (first 30/60 min) from your chosen session.
 // - Computes pace and relative volume so the drive can be read as slow/normal/fast.
 // - Projects adaptive continuation lines (drive edge + VWAP deviation).
 // - Projects adaptive fade lines (drive midpoint +/- sigma) for mean-revert targets.
-// - Tracks session stats: gap size, overnight drift, and first pullback depth.
+// - Tracks session stats: gap size, overnight drift, and max pullback depth
+//   after the first breakout.
 //
 // v2 changes:
 // - FIXED: Continuation and fade triggers gated by barstate.isconfirmed, so
 //          markers and alerts fire on bar close instead of repainting when a
 //          live close crosses a trigger line and pulls back.
+//
+// v3 changes:
+// - FIXED: Prior day close requested on [1] with lookahead_on, so the gap stat
+//          is correct on historical bars (it lagged one day).
+// - FIXED: Fade-line sigma is computed every bar. It was calculated only on the
+//          drive-lock bar, which made it a stdev across past sessions.
+// - FIXED: All-day sessions (starting 0000) reset each day in the session
+//          timezone, and bars without volume no longer break the session VWAP.
+// - FIXED: "1st Pullback" renamed "Max Pullback", which is what it measures.
+// - ADDED: Badge position input.
 //
 // TradingView setup:
 // 1) Open TradingView -> Pine Editor.
@@ -19,16 +30,16 @@
 // 3) Use intraday charts (5m-30m recommended).
 // 4) Set session timezone/session hours to your market.
 //
-// Usage guide (30m/4h):
+// Usage guide (5m-30m):
 // - Strong drive = high pace + volume ratio > 1.0x.
 // - Continuation lines are trigger zones for break-and-go behavior.
 // - Fade lines are mean-reversion targets when extension starts failing.
-// - Use pullback depth to size risk after first breakout.
+// - Use max pullback depth to size risk after the first breakout.
 
 
 
 //@version=6
-indicator("Capital41 Opening Drive Playbook v2", overlay = true, max_boxes_count = 80, max_labels_count = 100, max_lines_count = 80)
+indicator("Capital41 Opening Drive Playbook v3", overlay = true, max_boxes_count = 80)
 
 // Inputs
 useExchangeTz = input.bool(false, "Use exchange timezone")
@@ -49,6 +60,7 @@ showDriveLevels = input.bool(true, "Show drive levels")
 showTriggerLines = input.bool(true, "Show continuation/fade lines")
 showSessionVWAP = input.bool(true, "Show session VWAP")
 showStats = input.bool(true, "Show stats badge")
+badgePos = input.string("Bottom Right", "Badge position", options = ["Top Right", "Top Left", "Top Center", "Bottom Right", "Bottom Left", "Bottom Center", "Middle Right", "Middle Left"])
 
 colorDrive = color.new(color.blue, 88)
 colorContUp = color.new(color.lime, 0)
@@ -66,10 +78,31 @@ f_arrayAvg(_arr) =>
             s += array.get(_arr, i)
         s / sz
 
-// Session state
+f_pos(_p) =>
+    switch _p
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Bottom Right"  => position.bottom_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        "Middle Right"  => position.middle_right
+        "Middle Left"   => position.middle_left
+        => position.top_right
+
+// Session state (all-day sessions also reset when the session-timezone date changes)
+tzUsed = useExchangeTz ? syminfo.timezone : sessTz
 inSession = useExchangeTz ? not na(time(timeframe.period, sessTimes)) : not na(time(timeframe.period, sessTimes, sessTz))
-newSession = inSession and not inSession[1]
-sessionEnded = not inSession and inSession[1]
+allDay = str.substring(sessTimes, 0, 4) == "0000"
+sessDay = dayofmonth(time, tzUsed)
+newSession = inSession and (not inSession[1] or (allDay and sessDay != sessDay[1]))
+sessionEnded = (inSession[1] and not inSession) or (newSession and inSession[1])
+
+// Volume weights (equal weights when the symbol has no volume data)
+hasVolume = ta.cum(nz(volume)) > 0
+w = hasVolume ? nz(volume) : 1.0
+
+// Computed every bar so the stdev covers the last sigmaLen bars
+sigma = ta.stdev(close, sigmaLen)
 
 // Persistent state
 var float sessOpen = na
@@ -90,7 +123,7 @@ var float contUpper = na
 var float contLower = na
 var float fadeUpper = na
 var float fadeLower = na
-var float firstPullbackDepth = na
+var float maxPullbackDepth = na
 var bool breakoutSeen = false
 var int breakoutDir = 0
 var float breakoutExtreme = na
@@ -99,7 +132,7 @@ var float cumV = 0.0
 var box driveBox = na
 var float[] histDriveVol = array.new_float()
 
-priorDayClose = request.security(syminfo.tickerid, "D", close[1])
+priorDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_on)
 
 if sessionEnded
     prevSessionClose := close[1]
@@ -127,7 +160,7 @@ if newSession
     fadeUpper := na
     fadeLower := na
 
-    firstPullbackDepth := na
+    maxPullbackDepth := na
     breakoutSeen := false
     breakoutDir := 0
     breakoutExtreme := na
@@ -142,8 +175,8 @@ if newSession
 
 if inSession
     tp = hlc3
-    cumPV += tp * volume
-    cumV += volume
+    cumPV += tp * w
+    cumV += w
 
 
 sessionVwap = cumV > 0 ? cumPV / cumV : na
@@ -154,7 +187,7 @@ insideDrive = inSession and not driveLocked and not na(elapsedMin) and elapsedMi
 if insideDrive
     driveHigh := na(driveHigh) ? high : math.max(driveHigh, high)
     driveLow := na(driveLow) ? low : math.min(driveLow, low)
-    driveVol += volume
+    driveVol += nz(volume)
 
     if showDriveBox and not na(driveBox)
         box.set_top(driveBox, driveHigh)
@@ -167,7 +200,6 @@ if inSession and not driveLocked and not na(elapsedMin) and elapsedMin >= driveM
     driveRange := driveHigh - driveLow
     driveMid := (driveHigh + driveLow) * 0.5
 
-    sigma = ta.stdev(close, sigmaLen)
     vwapDev = not na(sessionVwap) ? math.abs(driveMid - sessionVwap) : driveRange * 0.25
     contOffset = math.max(vwapDev, driveRange * 0.15) * contMult
 
@@ -192,21 +224,21 @@ if inSession and driveLocked
             breakoutSeen := true
             breakoutDir := 1
             breakoutExtreme := high
-            firstPullbackDepth := 0.0
+            maxPullbackDepth := 0.0
         else if low < driveLow
             breakoutSeen := true
             breakoutDir := -1
             breakoutExtreme := low
-            firstPullbackDepth := 0.0
+            maxPullbackDepth := 0.0
     else
         if breakoutDir == 1
             breakoutExtreme := math.max(breakoutExtreme, high)
             retrace = breakoutExtreme - low
-            firstPullbackDepth := math.max(firstPullbackDepth, retrace)
+            maxPullbackDepth := math.max(maxPullbackDepth, retrace)
         else if breakoutDir == -1
             breakoutExtreme := math.min(breakoutExtreme, low)
             retrace = high - breakoutExtreme
-            firstPullbackDepth := math.max(firstPullbackDepth, retrace)
+            maxPullbackDepth := math.max(maxPullbackDepth, retrace)
 
 // Plot lines
 plot(showSessionVWAP and inSession ? sessionVwap : na, title = "Session VWAP", color = color.new(color.blue, 0), linewidth = 2)
@@ -244,7 +276,7 @@ plotshape(fadeDownTouch, title = "Fade Lower Touch", style = shape.circle,
 
 
 // Stats badge
-var table stats = table.new(position.bottom_right, 2, 7, border_width = 1)
+var table stats = table.new(f_pos(badgePos), 2, 7, border_width = 1)
 if barstate.islast
     if showStats
         stateText = not inSession ? "OUT" : driveLocked ? "POST-DRIVE" : "OPEN-DRIVE"
@@ -253,7 +285,7 @@ if barstate.islast
         volText = not na(driveVolRatio) ? str.tostring(driveVolRatio, "#.00") + "x" : "na"
         gapText = not na(gapSize) ? str.tostring(gapSize, "#.####") : "na"
         onText = not na(overnightDrift) ? str.tostring(overnightDrift, "#.####") : "na"
-        pullText = not na(firstPullbackDepth) ? str.tostring(firstPullbackDepth, "#.####") : "na"
+        pullText = not na(maxPullbackDepth) ? str.tostring(maxPullbackDepth, "#.####") : "na"
 
         table.cell(stats, 0, 0, "State", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
         table.cell(stats, 1, 0, stateText, bgcolor = color.new(color.gray, 70), text_color = color.white, text_size = size.tiny)
@@ -273,7 +305,7 @@ if barstate.islast
         table.cell(stats, 0, 5, "ON Drift", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
         table.cell(stats, 1, 5, onText, bgcolor = color.new(color.purple, 80), text_color = color.white, text_size = size.tiny)
 
-        table.cell(stats, 0, 6, "1st Pullback", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
+        table.cell(stats, 0, 6, "Max Pullback", bgcolor = color.new(color.black, 0), text_color = color.white, text_size = size.tiny)
         table.cell(stats, 1, 6, pullText, bgcolor = color.new(color.gray, 72), text_color = color.white, text_size = size.tiny)
     else
         for r = 0 to 6
